@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
+from datetime import timedelta
 
 import asyncpg
 import httpx
@@ -698,10 +699,12 @@ async def main():
     global config, bot, db_pool, http_client
 
     config = Config.from_env()
-        bot = Bot(
+
+    bot = Bot(
         token=config.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+
     db_pool = await asyncpg.create_pool(dsn=config.database_url)
     http_client = httpx.AsyncClient(timeout=20.0)
 
