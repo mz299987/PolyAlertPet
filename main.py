@@ -11,6 +11,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.client.default import DefaultBotProperties
 
 # =========================
 # Конфиг
@@ -697,7 +698,10 @@ async def main():
     global config, bot, db_pool, http_client
 
     config = Config.from_env()
-    bot = Bot(token=config.bot_token, parse_mode=ParseMode.HTML)
+        bot = Bot(
+        token=config.bot_token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     db_pool = await asyncpg.create_pool(dsn=config.database_url)
     http_client = httpx.AsyncClient(timeout=20.0)
 
