@@ -11,7 +11,13 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+)
 from aiogram.client.default import DefaultBotProperties
 
 # =========================
@@ -59,12 +65,15 @@ http_client: Optional[httpx.AsyncClient] = None
 
 DATA_API_BASE = "https://data-api.polymarket.com"
 
+# режим добавления кошелька по кнопкам:
+# user_add_mode[user_id] = "wallet" или "whale"
+user_add_mode: Dict[int, str] = {}
 
 # =========================
 # Утилиты
 # =========================
 
-WALLET_REGEX = re.compile(r"0x[a-fA-F0-9]{40}")
+WALLET_REGEX = re.compile(r"0x[a-fA-F0-9]{40}", re.IGNORECASE)
 
 
 def extract_wallet_address(text: str) -> Optional[str]:
@@ -79,6 +88,26 @@ def extract_wallet_address(text: str) -> Optional[str]:
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def main_menu_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Основная клавиатура под полем ввода.
+    """
+    kb = ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        keyboard=[
+            [
+                KeyboardButton(text="➕ Мой кошелёк"),
+                KeyboardButton(text="➕ Кит"),
+            ],
+            [
+                KeyboardButton(text="📊 Мои кошельки"),
+                KeyboardButton(text="📈 Состояние"),
+            ],
+        ],
+    )
+    return kb
 
 
 # =========================
@@ -193,7 +222,6 @@ async def pm_get_activity_trades(address: str, since_ts: Optional[int] = None) -
         "sortBy": "TIMESTAMP",
         "sortDirection": "DESC",
     }
-    # Можно использовать start/end, но для MVP просто фильтруем по timestamp на клиенте
     resp = await http_client.get(
         f"{DATA_API_BASE}/activity",
         params=params,
@@ -207,6 +235,107 @@ async def pm_get_activity_trades(address: str, since_ts: Optional[int] = None) -
 
 
 # =========================
+# Резолв ссылки / текста в 0x-кошелёк
+# =========================
+
+async def resolve_wallet_or_profile(text: str) -> Optional[str]:
+    """
+    Понимает:
+    - голый 0x-адрес
+    - ссылку с 0x-адресом (polymarket.com/wallet/0x..., profile/...)
+    - ссылку вида polymarket.com/@username (вытаскиваем адрес со страницы)
+    """
+    if not text:
+        return None
+
+    # 1) если прямо есть 0x-адрес — берём его
+    addr = extract_wallet_address(text)
+    if addr:
+        return addr
+
+    # 2) ищем ссылку вида polymarket.com/@username
+    m = re.search(
+        r"(https?://)?(www\.)?polymarket\.com/@([A-Za-z0-9_\-\.]+)",
+        text,
+    )
+    if not m:
+        return None
+
+    url = m.group(0)
+    if not url.startswith("http"):
+        url = "https://" + url
+
+    assert http_client is not None
+    try:
+        resp = await http_client.get(url, timeout=20.0)
+        resp.raise_for_status()
+        html = resp.text
+        addr_from_html = extract_wallet_address(html)
+        return addr_from_html
+    except Exception:
+        return None
+
+
+# =========================
+# Хэлперы для работы с wallets в БД
+# =========================
+
+async def save_wallet(
+    tg_user_id: int,
+    address: str,
+    label: Optional[str],
+    is_whale: bool,
+) -> str:
+    """
+    Добавляет кошелёк или кита в БД.
+    Возвращает строку-статус: "exists", "wallet_added", "whale_added".
+    """
+    assert db_pool is not None
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id FROM wallets
+            WHERE tg_user_id=$1 AND address=$2 AND is_whale=$3
+            """,
+            tg_user_id,
+            address,
+            is_whale,
+        )
+        if row:
+            return "exists"
+
+        if is_whale:
+            w_id = await conn.fetchval(
+                """
+                INSERT INTO wallets (tg_user_id, address, label, is_whale, whale_alerts_enabled)
+                VALUES ($1, $2, $3, TRUE, TRUE)
+                RETURNING id
+                """,
+                tg_user_id,
+                address,
+                label,
+            )
+            # инициализируем маркер активности
+            await conn.execute(
+                "INSERT INTO activity_markers (wallet_id, last_seen_timestamp) VALUES ($1, $2)",
+                w_id,
+                0,
+            )
+            return "whale_added"
+        else:
+            await conn.execute(
+                """
+                INSERT INTO wallets (tg_user_id, address, label, is_whale, alerts_enabled)
+                VALUES ($1, $2, $3, FALSE, TRUE)
+                """,
+                tg_user_id,
+                address,
+                label,
+            )
+            return "wallet_added"
+
+
+# =========================
 # Хэндлеры Telegram
 # =========================
 
@@ -216,123 +345,106 @@ async def cmd_start(message: Message):
     await ensure_user(db_pool, message.from_user.id)
     text = (
         "Привет! Я трекаю твой Polymarket профиль 🧠\n\n"
-        "Доступные команды:\n"
-        "/add_wallet адрес_или_ссылка [label] — добавить свой кошелёк\n"
-        "/add_whale адрес_или_ссылка [label] — добавить кита для отслеживания\n"
-        "/wallets — показать все кошельки\n"
-        "/pnl period — PnL за период (1d, 7d, 30d)\n\n"
-        "После добавления кошельков я буду:\n"
-        "• слать алерты при движении позиции на ±5% (по умолчанию)\n"
-        "• слать алерты по сделкам китов.\n"
+        "Что я умею:\n"
+        "• слать алерты при движении позиций на ±5%\n"
+        "• отслеживать китов и их новые сделки\n"
+        "• показывать текущее состояние кошелька/китов\n\n"
+        "Используй кнопки внизу:\n"
+        "• «➕ Мой кошелёк» — добавь свой профиль Polymarket\n"
+        "• «➕ Кит» — добавь кошелёк кита\n"
+        "• «📊 Мои кошельки» — список всех\n"
+        "• «📈 Состояние» — текущий equity и топ рынки\n\n"
+        "Также доступны команды:\n"
+        "/add_wallet адрес_или_ссылка [label]\n"
+        "/add_whale адрес_или_ссылка [label]\n"
+        "/wallets — список кошельков\n"
+        "/pnl period — PnL за период (1d, 7d, 30d)\n"
+        "/state — текущее состояние кошельков\n"
     )
-    await message.answer(text)
+    await message.answer(text, reply_markup=main_menu_keyboard())
 
 
 @dp.message(Command("add_wallet"))
 async def cmd_add_wallet(message: Message):
     """
-    /add_wallet <адрес или ссылка> [label]
+    /add_wallet адрес_или_ссылка [label]
     """
     assert db_pool is not None
     await ensure_user(db_pool, message.from_user.id)
 
-    parts = (message.text or "").split()
+    parts = (message.text or "").split(maxsplit=2)
     if len(parts) < 2:
-        await message.reply("Формат: <code>/add_wallet адрес_или_ссылка [label]</code>", parse_mode=ParseMode.HTML)
+        await message.reply(
+            "Формат: <code>/add_wallet адрес_или_ссылка [label]</code>",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
-    addr_candidate = " ".join(parts[1:2])
-    label = " ".join(parts[2:]) if len(parts) > 2 else None
+    addr_candidate = parts[1]
+    label = parts[2] if len(parts) > 2 else None
 
-    address = extract_wallet_address(addr_candidate)
+    address = await resolve_wallet_or_profile(addr_candidate)
     if not address:
         await message.reply(
-            "Не вижу 0x-адрес в сообщении. Пришли что-то вроде:\n"
+            "Не смог найти 0x-адрес в сообщении.\n"
+            "Пришли что-то вроде:\n"
+            "<code>/add_wallet https://polymarket.com/@username main</code>\n"
+            "или\n"
             "<code>/add_wallet 0x1234...abcd main</code>",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    async with db_pool.acquire() as conn:
-        # Уже есть?
-        row = await conn.fetchrow(
-            "SELECT id FROM wallets WHERE tg_user_id=$1 AND address=$2 AND is_whale=FALSE",
-            message.from_user.id,
-            address,
-        )
-        if row:
-            await message.reply("Этот кошелёк уже добавлен как твой 👍")
-            return
+    status = await save_wallet(message.from_user.id, address, label, is_whale=False)
 
-        await conn.execute(
-            """
-            INSERT INTO wallets (tg_user_id, address, label, is_whale, alerts_enabled)
-            VALUES ($1, $2, $3, FALSE, TRUE)
-            """,
-            message.from_user.id,
-            address,
-            label,
+    if status == "exists":
+        await message.reply("Этот кошелёк уже добавлен как твой 👍")
+    else:
+        await message.reply(
+            f"Кошелёк <code>{address}</code> добавлен ✅",
+            parse_mode=ParseMode.HTML,
         )
-
-    await message.reply(f"Кошелёк <code>{address}</code> добавлен ✅", parse_mode=ParseMode.HTML)
 
 
 @dp.message(Command("add_whale"))
 async def cmd_add_whale(message: Message):
     """
-    /add_whale <адрес или ссылка> [label]
+    /add_whale адрес_или_ссылка [label]
     """
     assert db_pool is not None
     await ensure_user(db_pool, message.from_user.id)
 
-    parts = (message.text or "").split()
+    parts = (message.text or "").split(maxsplit=2)
     if len(parts) < 2:
-        await message.reply("Формат: <code>/add_whale адрес_или_ссылка [label]</code>", parse_mode=ParseMode.HTML)
-        return
-
-    addr_candidate = " ".join(parts[1:2])
-    label = " ".join(parts[2:]) if len(parts) > 2 else None
-
-    address = extract_wallet_address(addr_candidate)
-    if not address:
         await message.reply(
-            "Не вижу 0x-адрес. Пришли что-то вроде:\n"
-            "<code>/add_whale 0x1234...abcd MegaWhale</code>",
+            "Формат: <code>/add_whale адрес_или_ссылка [label]</code>",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id FROM wallets WHERE tg_user_id=$1 AND address=$2 AND is_whale=TRUE",
-            message.from_user.id,
-            address,
-        )
-        if row:
-            await message.reply("Этот кит уже есть в списке 🐳")
-            return
+    addr_candidate = parts[1]
+    label = parts[2] if len(parts) > 2 else None
 
-        w_id = await conn.fetchval(
-            """
-            INSERT INTO wallets (tg_user_id, address, label, is_whale, whale_alerts_enabled)
-            VALUES ($1, $2, $3, TRUE, TRUE)
-            RETURNING id
-            """,
-            message.from_user.id,
-            address,
-            label,
+    address = await resolve_wallet_or_profile(addr_candidate)
+    if not address:
+        await message.reply(
+            "Не смог найти 0x-адрес.\n"
+            "Пришли ссылку на профиль Polymarket или 0x-адрес.\n"
+            "Например:\n"
+            "<code>/add_whale https://polymarket.com/@bigwhale MegaWhale</code>",
+            parse_mode=ParseMode.HTML,
         )
-        # Инициализируем маркер активности
-        await conn.execute(
-            "INSERT INTO activity_markers (wallet_id, last_seen_timestamp) VALUES ($1, $2)",
-            w_id,
-            0,
-        )
+        return
 
-    await message.reply(
-        f"Кит <code>{address}</code> добавлен 🐳, буду слать алерты по его сделкам.",
-        parse_mode=ParseMode.HTML,
-    )
+    status = await save_wallet(message.from_user.id, address, label, is_whale=True)
+
+    if status == "exists":
+        await message.reply("Этот кит уже есть в списке 🐳")
+    else:
+        await message.reply(
+            f"Кит <code>{address}</code> добавлен 🐳, буду слать алерты по его сделкам.",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 @dp.message(Command("wallets"))
@@ -352,7 +464,10 @@ async def cmd_wallets(message: Message):
         )
 
     if not rows:
-        await message.reply("У тебя ещё нет кошельков. Добавь через /add_wallet или /add_whale.")
+        await message.reply(
+            "У тебя ещё нет кошельков.\n"
+            "Нажми «➕ Мой кошелёк» или «➕ Кит» и отправь ссылку на профиль Polymarket."
+        )
         return
 
     lines = []
@@ -368,6 +483,101 @@ async def cmd_wallets(message: Message):
         lines.append(f"{kind} <code>{r['address']}</code>{label} — {flags_text}")
 
     await message.reply("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def build_state_text(tg_user_id: int) -> str:
+    """
+    Формирует текстовое состояние всех кошельков пользователя: equity + топ рынки.
+    """
+    assert db_pool is not None
+
+    async with db_pool.acquire() as conn:
+        wallets = await conn.fetch(
+            """
+            SELECT id, address, label, is_whale
+            FROM wallets
+            WHERE tg_user_id=$1
+            ORDER BY is_whale, created_at
+            """,
+            tg_user_id,
+        )
+
+    if not wallets:
+        return (
+            "У тебя пока нет кошельков.\n"
+            "Нажми «➕ Мой кошелёк» или «➕ Кит» и отправь ссылку на профиль Polymarket."
+        )
+
+    lines: List[str] = ["📈 Текущее состояние кошельков:\n"]
+
+    for w in wallets:
+        address = w["address"]
+        label = w["label"]
+        is_whale = w["is_whale"]
+        icon = "🐳" if is_whale else "👤"
+        label_text = f" ({label})" if label else ""
+
+        # тянем данные с Polymarket
+        try:
+            value = await pm_get_value(address)
+        except Exception:
+            value = None
+
+        try:
+            positions = await pm_get_positions(address)
+        except Exception:
+            positions = []
+
+        value_str = f"{value:.2f} USDC" if value is not None else "n/a"
+        lines.append(f"{icon} <code>{address}</code>{label_text}")
+        lines.append(f"Equity: <b>{value_str}</b>")
+
+        if positions:
+            lines.append(f"Позиции: {len(positions)}")
+
+            # сортируем по абсолютному cashPnl, чтобы показать самые важные
+            def pnl_key(p: Dict[str, Any]) -> float:
+                try:
+                    return abs(float(p.get("cashPnl") or 0.0))
+                except Exception:
+                    return 0.0
+
+            top_positions = sorted(positions, key=pnl_key, reverse=True)[:3]
+
+            if top_positions:
+                lines.append("Топ рынки:")
+                for p in top_positions:
+                    title = p.get("title") or "Без названия"
+                    outcome = p.get("outcome") or "?"
+                    cash_pnl = p.get("cashPnl")
+                    percent_pnl = p.get("percentPnl")
+                    try:
+                        cash_pnl_f = float(cash_pnl) if cash_pnl is not None else 0.0
+                    except Exception:
+                        cash_pnl_f = 0.0
+                    try:
+                        pct_f = float(percent_pnl) if percent_pnl is not None else 0.0
+                    except Exception:
+                        pct_f = 0.0
+
+                    sign_cash = "+" if cash_pnl_f >= 0 else ""
+                    sign_pct = "+" if pct_f >= 0 else ""
+                    lines.append(
+                        f"• <b>{title}</b> ({outcome}) — "
+                        f"{sign_pct}{pct_f:.2f}% ({sign_cash}{cash_pnl_f:.2f} USDC)"
+                    )
+        else:
+            lines.append("Позиции: 0")
+
+        lines.append("")  # пустая строка между кошельками
+
+    return "\n".join(lines).strip()
+
+
+@dp.message(Command("state"))
+async def cmd_state(message: Message):
+    text = await build_state_text(message.from_user.id)
+    await message.answer(text, parse_mode=ParseMode.HTML)
 
 
 @dp.message(Command("pnl"))
@@ -400,7 +610,7 @@ async def cmd_pnl(message: Message):
             message.from_user.id,
         )
         if not wallets:
-            await message.reply("Нет своих кошельков. Добавь через /add_wallet.")
+            await message.reply("Нет своих кошельков. Добавь через «➕ Мой кошелёк».")
             return
 
         text_lines = [f"PNL за {period_str}:"]
@@ -441,10 +651,115 @@ async def cmd_pnl(message: Message):
             label = f" ({w['label']})" if w["label"] else ""
             sign = "+" if delta >= 0 else ""
             text_lines.append(
-                f"• <code>{w['address']}</code>{label}: {sign}{delta:.2f} USDC ({sign}{pct:.2f}%)"
+                f"• <code>{w['address']}</code>{label}: "
+                f"{sign}{delta:.2f} USDC ({sign}{pct:.2f}%)"
             )
 
     await message.reply("\n".join(text_lines), parse_mode=ParseMode.HTML)
+
+
+# =========================
+# Кнопки-клавиатура (без команд)
+# =========================
+
+@dp.message(F.text == "➕ Мой кошелёк")
+async def btn_my_wallet(message: Message):
+    await ensure_user(db_pool, message.from_user.id)  # type: ignore[arg-type]
+    user_add_mode[message.from_user.id] = "wallet"
+    await message.answer(
+        "Ок, добавляем твой кошелёк 👤\n\n"
+        "Пришли ссылку на профиль Polymarket или 0x-адрес.\n"
+        "Поддерживаю форматы:\n"
+        "• https://polymarket.com/@username\n"
+        "• https://polymarket.com/profile/...\n"
+        "• https://polymarket.com/wallet/0x...\n"
+        "• просто 0x-адрес",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
+@dp.message(F.text == "➕ Кит")
+async def btn_whale(message: Message):
+    await ensure_user(db_pool, message.from_user.id)  # type: ignore[arg-type]
+    user_add_mode[message.from_user.id] = "whale"
+    await message.answer(
+        "Ок, добавляем кита 🐳\n\n"
+        "Пришли ссылку на профиль Polymarket этого кита или его 0x-адрес.",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
+@dp.message(F.text == "📊 Мои кошельки")
+async def btn_wallets(message: Message):
+    await cmd_wallets(message)
+
+
+@dp.message(F.text == "📈 Состояние")
+async def btn_state(message: Message):
+    await cmd_state(message)
+
+
+@dp.message(F.text)
+async def handle_free_text(message: Message):
+    """
+    Обрабатываем свободный текст:
+    - если пользователь в режиме добавления кошелька/кита — пытаемся зарезолвить ссылку.
+    """
+    # игнорируем команды вида /start, /add_wallet и т.д.
+    if (message.text or "").startswith("/"):
+        return
+
+    mode = user_add_mode.get(message.from_user.id)
+    if mode not in ("wallet", "whale"):
+        # пока ничего хитрого не делаем, просто подсказываем
+        await message.answer(
+            "Если хочешь добавить кошелёк, нажми «➕ Мой кошелёк» или «➕ Кит», "
+            "а потом отправь ссылку на профиль Polymarket или 0x-адрес 😉",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
+    # пытаемся резолвнуть ссылку/текст в 0x-адрес
+    address = await resolve_wallet_or_profile(message.text or "")
+    if not address:
+        await message.answer(
+            "Не смог найти 0x-адрес в этом сообщении 😔\n"
+            "Отправь ещё раз ссылку на профиль Polymarket или чистый 0x-адрес.",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
+    label = None
+    is_whale = mode == "whale"
+    status = await save_wallet(message.from_user.id, address, label, is_whale=is_whale)
+
+    if is_whale:
+        if status == "exists":
+            await message.answer(
+                "Этот кит уже есть в списке 🐳",
+                reply_markup=main_menu_keyboard(),
+            )
+        else:
+            await message.answer(
+                f"Кит <code>{address}</code> добавлен 🐳, буду слать алерты по его сделкам.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=main_menu_keyboard(),
+            )
+    else:
+        if status == "exists":
+            await message.answer(
+                "Этот кошелёк уже добавлен как твой 👍",
+                reply_markup=main_menu_keyboard(),
+            )
+        else:
+            await message.answer(
+                f"Кошелёк <code>{address}</code> добавлен ✅",
+                parse_mode=ParseMode.HTML,
+                reply_markup=main_menu_keyboard(),
+            )
+
+    # сбрасываем режим добавления
+    user_add_mode.pop(message.from_user.id, None)
 
 
 # =========================
@@ -483,7 +798,6 @@ async def monitor_positions():
                 try:
                     positions = await pm_get_positions(address)
                 except Exception:
-                    # Можно логировать, но для MVP просто пропускаем
                     continue
 
                 # Снапшот equity
@@ -577,12 +891,16 @@ async def monitor_positions():
                                 f"Текущий PnL: {sign}{float(cur_pct):.2f}%\n"
                             )
                             try:
-                                await bot.send_message(tg_id, text, parse_mode=ParseMode.HTML)
+                                await bot.send_message(
+                                    tg_id,
+                                    text,
+                                    parse_mode=ParseMode.HTML,
+                                )
                             except Exception:
                                 pass
 
         except Exception:
-            # Можно залогировать, но для MVP просто молча переживаем ошибку
+            # можно логировать, но для MVP просто молча переживаем ошибку
             pass
 
         await asyncio.sleep(config.poll_interval_seconds)
@@ -629,7 +947,7 @@ async def monitor_whales():
                 if not trades:
                     continue
 
-                # Новые сделки сортируем по timestamp asc, чтобы сообщения шли по порядку
+                # новые сделки сортируем по timestamp asc, чтобы сообщения шли по порядку
                 trades_sorted = sorted(trades, key=lambda t: int(t.get("timestamp", 0)))
                 max_ts = last_ts
 
@@ -648,7 +966,11 @@ async def monitor_whales():
                     event_slug = t.get("eventSlug")
 
                     label_text = f" ({label})" if label else ""
-                    url = f"https://polymarket.com/event/{event_slug}/{slug}" if slug and event_slug else ""
+                    url = (
+                        f"https://polymarket.com/event/{event_slug}/{slug}"
+                        if slug and event_slug
+                        else ""
+                    )
 
                     text_lines = [
                         "🐳 Новая сделка кита",
@@ -657,9 +979,17 @@ async def monitor_whales():
                         f"Сторона: <b>{side}</b> по исходу <code>{outcome}</code>",
                     ]
                     if usdc_size is not None:
-                        text_lines.append(f"Объём: <b>{float(usdc_size):.2f} USDC</b>")
+                        try:
+                            usdc_f = float(usdc_size)
+                            text_lines.append(f"Объём: <b>{usdc_f:.2f} USDC</b>")
+                        except Exception:
+                            pass
                     if price is not None:
-                        text_lines.append(f"Цена: {float(price):.3f}")
+                        try:
+                            price_f = float(price)
+                            text_lines.append(f"Цена: {price_f:.3f}")
+                        except Exception:
+                            pass
                     if url:
                         text_lines.append(f"\n<a href=\"{url}\">Открыть рынок</a>")
 
@@ -737,11 +1067,11 @@ async def main():
     # поднимаем HTTP-сервер для health-check'ов Koyeb
     await start_health_server()
 
-    # Запускаем фоновые таски
+    # запускаем фоновые таски
     asyncio.create_task(monitor_positions())
     asyncio.create_task(monitor_whales())
 
-    # Стартуем long polling
+    # стартуем long polling
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
