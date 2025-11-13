@@ -3,11 +3,11 @@ import re
 import asyncio
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timezone
-from datetime import timedelta
+from datetime import datetime, timezone, timedelta
 
 import asyncpg
 import httpx
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
@@ -151,7 +151,6 @@ async def pm_get_positions(address: str) -> List[Dict[str, Any]]:
     """
     GET /positions?user=...
     Возвращает список позиций с PnL, ценой, названием рынка и т.д.
-    :contentReference[oaicite:1]{index=1}
     """
     assert http_client is not None
     resp = await http_client.get(
@@ -166,7 +165,7 @@ async def pm_get_positions(address: str) -> List[Dict[str, Any]]:
 async def pm_get_value(address: str) -> Optional[float]:
     """
     GET /value?user=...
-    Общая стоимость позиций по кошельку. :contentReference[oaicite:2]{index=2}
+    Общая стоимость позиций по кошельку.
     """
     assert http_client is not None
     resp = await http_client.get(
@@ -185,7 +184,6 @@ async def pm_get_activity_trades(address: str, since_ts: Optional[int] = None) -
     """
     GET /activity?user=...&type=TRADE
     История ончейн-активности, тут берём только сделки (TRADE).
-    :contentReference[oaicite:3]{index=3}
     """
     assert http_client is not None
     params: Dict[str, Any] = {
@@ -248,8 +246,11 @@ async def cmd_add_wallet(message: Message):
 
     address = extract_wallet_address(addr_candidate)
     if not address:
-        await message.reply("Не вижу 0x-адрес в сообщении. Пришли что-то вроде:\n"
-                            "<code>/add_wallet 0x1234...abcd main</code>", parse_mode=ParseMode.HTML)
+        await message.reply(
+            "Не вижу 0x-адрес в сообщении. Пришли что-то вроде:\n"
+            "<code>/add_wallet 0x1234...abcd main</code>",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     async with db_pool.acquire() as conn:
@@ -294,8 +295,11 @@ async def cmd_add_whale(message: Message):
 
     address = extract_wallet_address(addr_candidate)
     if not address:
-        await message.reply("Не вижу 0x-адрес. Пришли что-то вроде:\n"
-                            "<code>/add_whale 0x1234...abcd MegaWhale</code>", parse_mode=ParseMode.HTML)
+        await message.reply(
+            "Не вижу 0x-адрес. Пришли что-то вроде:\n"
+            "<code>/add_whale 0x1234...abcd MegaWhale</code>",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     async with db_pool.acquire() as conn:
@@ -325,8 +329,10 @@ async def cmd_add_whale(message: Message):
             0,
         )
 
-    await message.reply(f"Кит <code>{address}</code> добавлен 🐳, буду слать алерты по его сделкам.",
-                        parse_mode=ParseMode.HTML)
+    await message.reply(
+        f"Кит <code>{address}</code> добавлен 🐳, буду слать алерты по его сделкам.",
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @dp.message(Command("wallets"))
@@ -377,13 +383,15 @@ async def cmd_pnl(message: Message):
     period_str = parts[1] if len(parts) > 1 else "7d"
 
     if period_str not in ("1d", "7d", "30d"):
-        await message.reply("Допустимые периоды: 1d, 7d, 30d\nПример: <code>/pnl 7d</code>",
-                            parse_mode=ParseMode.HTML)
+        await message.reply(
+            "Допустимые периоды: 1d, 7d, 30d\nПример: <code>/pnl 7d</code>",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     days = int(period_str[:-1])
     now = now_utc()
-    from_time = now - timedelta(days=days)  # type: ignore[name-defined]  # добавим импорт ниже
+    from_time = now - timedelta(days=days)
 
     async with db_pool.acquire() as conn:
         # Берём первый и последний снапшоты equity для каждого НЕ-кита кошелька
@@ -474,7 +482,7 @@ async def monitor_positions():
                 # Позиции
                 try:
                     positions = await pm_get_positions(address)
-                except Exception as e:
+                except Exception:
                     # Можно логировать, но для MVP просто пропускаем
                     continue
 
@@ -689,11 +697,27 @@ async def monitor_whales():
 
 
 # =========================
-# Точка входа
+# HTTP health-check сервер для Koyeb
 # =========================
 
-from datetime import timedelta  # нужно для /pnl
+async def health(request: web.Request) -> web.Response:
+    return web.Response(text="OK")
 
+
+async def start_health_server():
+    app = web.Application()
+    app.router.add_get("/", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    port = int(os.getenv("PORT", "8000"))  # Koyeb пробрасывает порт в env
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+
+# =========================
+# Точка входа
+# =========================
 
 async def main():
     global config, bot, db_pool, http_client
@@ -709,6 +733,9 @@ async def main():
     http_client = httpx.AsyncClient(timeout=20.0)
 
     await init_db(db_pool)
+
+    # поднимаем HTTP-сервер для health-check'ов Koyeb
+    await start_health_server()
 
     # Запускаем фоновые таски
     asyncio.create_task(monitor_positions())
