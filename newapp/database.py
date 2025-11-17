@@ -42,6 +42,17 @@ class Database:
                 )
             """)
     
+            # Миграция: добавляем столбец name если он отсутствует
+            await conn.execute("""
+                DO $$ 
+                BEGIN 
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                                  WHERE table_name = 'wallets' AND column_name = 'name') THEN
+                        ALTER TABLE wallets ADD COLUMN name VARCHAR(100);
+                    END IF;
+                END $$;
+            """)
+    
     async def ensure_user(self, user_id: int) -> bool:
         """Создает пользователя если не существует"""
         async with self.pool.acquire() as conn:
