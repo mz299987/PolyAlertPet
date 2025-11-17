@@ -83,9 +83,9 @@ class Database:
         async with self.pool.acquire() as conn:
             try:
                 await conn.execute("""
-                    INSERT INTO wallets (user_id, address, name, is_whale) 
+                    INSERT INTO wallets (tg_user_id, address, name, is_whale) 
                     VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (user_id, address) DO UPDATE SET
+                    ON CONFLICT (tg_user_id, address) DO UPDATE SET
                     name = EXCLUDED.name, is_whale = EXCLUDED.is_whale
                 """, user_id, address, name, is_whale)
                 return True
@@ -98,7 +98,7 @@ class Database:
             rows = await conn.fetch("""
                 SELECT id, address, name, is_whale, created_at
                 FROM wallets 
-                WHERE user_id = $1 
+                WHERE tg_user_id = $1 
                 ORDER BY created_at
             """, user_id)
             return [dict(row) for row in rows]
@@ -107,6 +107,6 @@ class Database:
         """Удаляет кошелек"""
         async with self.pool.acquire() as conn:
             result = await conn.execute("""
-                DELETE FROM wallets WHERE id = $1 AND user_id = $2
+                DELETE FROM wallets WHERE id = $1 AND tg_user_id = $2
             """, wallet_id, user_id)
             return "DELETE" in result
