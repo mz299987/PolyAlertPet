@@ -51,7 +51,7 @@ class PolymarketBot:
         self.db = Database(self.config.database_url)
         self.http_client = AsyncClient(timeout=30.0)
         self.polymarket = PolymarketAPI(self.http_client)
-        self.cache = Cache(self.config.redis_url)
+        self.cache = Cache()
         self.security = Security(self.config.rate_limit_per_minute)
         self.notifications = NotificationManager(self.bot, self.db, self.polymarket)
         
