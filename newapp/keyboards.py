@@ -10,7 +10,17 @@ class Keyboards:
     """Класс для создания клавиатур"""
     
     @staticmethod
-    def get_main_menu(language: str = "ru") -> ReplyKeyboardMarkup:
+    def get_language_selection_start() -> InlineKeyboardMarkup:
+        """Выбор языка при старте"""
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_start_ru"),
+                InlineKeyboardButton(text="🇺🇸 English", callback_data="lang_start_en")
+            ]
+        ])
+    
+    @staticmethod
+    def get_main_menu(language: str = "en") -> ReplyKeyboardMarkup:
         """Главное меню"""
         if language == "ru":
             buttons = [
@@ -35,7 +45,7 @@ class Keyboards:
     
     @staticmethod
     def get_language_selection() -> InlineKeyboardMarkup:
-        """Выбор языка"""
+        """Выбор языка из настроек"""
         return InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru"),
@@ -47,7 +57,7 @@ class Keyboards:
         ])
     
     @staticmethod
-    def get_analytics_menu(language: str = "ru") -> InlineKeyboardMarkup:
+    def get_analytics_menu(language: str = "en") -> InlineKeyboardMarkup:
         """Меню аналитики"""
         if language == "ru":
             buttons = [
@@ -67,7 +77,7 @@ class Keyboards:
         return InlineKeyboardMarkup(inline_keyboard=buttons)
     
     @staticmethod
-    def get_settings_menu(language: str = "ru") -> InlineKeyboardMarkup:
+    def get_settings_menu(language: str = "en") -> InlineKeyboardMarkup:
         """Меню настроек"""
         if language == "ru":
             buttons = [
@@ -87,7 +97,7 @@ class Keyboards:
         return InlineKeyboardMarkup(inline_keyboard=buttons)
     
     @staticmethod
-    def get_notification_settings(language: str = "ru") -> InlineKeyboardMarkup:
+    def get_notification_settings(language: str = "en") -> InlineKeyboardMarkup:
         """Настройки уведомлений"""
         if language == "ru":
             buttons = [
@@ -109,7 +119,7 @@ class Keyboards:
         return InlineKeyboardMarkup(inline_keyboard=buttons)
     
     @staticmethod
-    def get_wallet_selection(wallets: list, current_index: int, language: str = "ru") -> InlineKeyboardMarkup:
+    def get_wallet_selection(wallets: list, current_index: int, language: str = "en") -> InlineKeyboardMarkup:
         """Клавиатура для выбора кошельков"""
         total_wallets = len(wallets)
         
@@ -141,7 +151,7 @@ class Keyboards:
         return InlineKeyboardMarkup(inline_keyboard=buttons)
     
     @staticmethod
-    def get_wallet_list(wallets: list, language: str = "ru") -> InlineKeyboardMarkup:
+    def get_wallet_list(wallets: list, language: str = "en") -> InlineKeyboardMarkup:
         """Список кошельков для выбора"""
         buttons = []
         
@@ -164,7 +174,7 @@ class Keyboards:
         return InlineKeyboardMarkup(inline_keyboard=buttons)
     
     @staticmethod
-    def get_back_button(language: str = "ru") -> InlineKeyboardMarkup:
+    def get_back_button(language: str = "en") -> InlineKeyboardMarkup:
         """Кнопка возврата"""
         if language == "ru":
             button = [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_analytics")]
@@ -174,7 +184,17 @@ class Keyboards:
         return InlineKeyboardMarkup(inline_keyboard=[button])
     
     @staticmethod
-    def get_quick_actions(language: str = "ru") -> ReplyKeyboardMarkup:
+    def get_back_to_settings(language: str = "en") -> InlineKeyboardMarkup:
+        """Кнопка возврата в настройки"""
+        if language == "ru":
+            button = [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_settings")]
+        else:
+            button = [InlineKeyboardButton(text="⬅️ Back", callback_data="back_to_settings")]
+        
+        return InlineKeyboardMarkup(inline_keyboard=[button])
+    
+    @staticmethod
+    def get_quick_actions(language: str = "en") -> ReplyKeyboardMarkup:
         """Быстрые действия"""
         if language == "ru":
             buttons = [
