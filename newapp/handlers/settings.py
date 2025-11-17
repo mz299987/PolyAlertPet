@@ -111,21 +111,6 @@ async def cb_toggle_notification(callback: CallbackQuery, db: Database):
     await callback.answer(text)
 
 
-@router.callback_query(F.data.startswith("lang_"))
-async def cb_set_language(callback: CallbackQuery, db: Database):
-    """Установка языка"""
-    language = callback.data.split("_")[1]
-    await db.set_user_language(callback.from_user.id, language)
-    
-    if language == "ru":
-        text = "✅ Язык изменен на русский"
-    else:
-        text = "✅ Language changed to English"
-    
-    await callback.message.edit_text(text)
-    await callback.answer(text)
-
-
 @router.callback_query(F.data == "security_settings")
 async def cb_security_settings(callback: CallbackQuery, db: Database, security: Security):
     """Настройки безопасности"""
@@ -153,7 +138,43 @@ async def cb_security_settings(callback: CallbackQuery, db: Database, security: 
     
     await callback.message.edit_text(
         text,
-        reply_markup=Keyboards.get_back_button(language)
+        reply_markup=Keyboards.get_back_to_settings(language)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_to_settings")
+async def cb_back_to_settings(callback: CallbackQuery, db: Database):
+    """Возврат в меню настроек"""
+    language = await db.get_user_language(callback.from_user.id)
+    
+    if language == "ru":
+        text = "⚙️ <b>Настройки бота</b>\n\n"
+        text += "Здесь вы можете настроить уведомления и другие параметры:"
+    else:
+        text = "⚙️ <b>Bot Settings</b>\n\n"
+        text += "Configure notifications and other settings:"
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=Keyboards.get_settings_menu(language)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_to_analytics")
+async def cb_back_to_analytics(callback: CallbackQuery, db: Database):
+    """Возврат в меню аналитики"""
+    language = await db.get_user_language(callback.from_user.id)
+    
+    if language == "ru":
+        text = "📊 <b>Аналитика портфеля</b>\n\nВыберите тип анализа:"
+    else:
+        text = "📊 <b>Portfolio Analytics</b>\n\nSelect analysis type:"
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=Keyboards.get_analytics_menu(language)
     )
     await callback.answer()
 
@@ -164,8 +185,8 @@ async def cmd_reset(message: Message, security: Security):
     user_id = message.from_user.id
     security.reset_rate_limit(user_id)
     
-    # Проверяем язык пользователя
-    language = "ru"  # Временно, будет заменено на получение из базы
+    # Получаем язык из базы данных
+    language = "en"  # Временно, будет заменено на получение из базы
     
     if language == "ru":
         text = "🔄 Лимиты безопасности сброшены"
@@ -175,7 +196,7 @@ async def cmd_reset(message: Message, security: Security):
     await message.answer(text)
 
 
-@router.message(Command("help"))
+@router.message(F.text.in_(["ℹ️ Помощь", "ℹ️ Help"]))
 async def cmd_help(message: Message, db: Database):
     """Справка по командам"""
     language = await db.get_user_language(message.from_user.id)
@@ -187,12 +208,17 @@ async def cmd_help(message: Message, db: Database):
         text += "• /help - Эта справка\n"
         text += "• /status - Статус портфеля\n"
         text += "• /addwallet [адрес] - Добавить кошелек\n"
-        text += "• /search [запрос] - Поиск событий\n\n"
+        text += "• /search [запрос] - Поиск событий\n"
+        text += "• /reset - Сброс лимитов безопасности\n\n"
         text += "<b>Быстрые действия:</b>\n"
         text += "• 📈 Состояние - Показать статус\n"
         text += "• 📊 Аналитика - Анализ портфеля\n"
         text += "• 🔍 Поиск - Поиск по рынкам\n"
         text += "• ⚙️ Настройки - Настройки бота\n\n"
+        text += "<b>Как добавить кошелек:</b>\n"
+        text += "1. Нажмите '➕ Мой кошелёк'\n"
+        text += "2. Отправьте адрес (0x...) или ссылку на профиль Polymarket\n"
+        text += "3. Кошелек будет добавлен для отслеживания\n\n"
         text += "Для навигации используйте кнопки меню."
     else:
         text = "📚 <b>Command Help</b>\n\n"
@@ -201,12 +227,23 @@ async def cmd_help(message: Message, db: Database):
         text += "• /help - This help\n"
         text += "• /status - Portfolio status\n"
         text += "• /addwallet [address] - Add wallet\n"
-        text += "• /search [query] - Search events\n\n"
+        text += "• /search [query] - Search events\n"
+        text += "• /reset - Reset security limits\n\n"
         text += "<b>Quick Actions:</b>\n"
         text += "• 📈 Status - Show status\n"
         text += "• 📊 Analytics - Portfolio analysis\n"
         text += "• 🔍 Search - Market search\n"
         text += "• ⚙️ Settings - Bot settings\n\n"
+        text += "<b>How to add a wallet:</b>\n"
+        text += "1. Click '➕ My Wallet'\n"
+        text += "2. Send address (0x...) or Polymarket profile link\n"
+        text += "3. Wallet will be added for tracking\n\n"
         text += "Use menu buttons for navigation."
     
     await message.answer(text)
+
+
+@router.message(Command("help"))
+async def cmd_help_command(message: Message, db: Database):
+    """Обработка команды /help"""
+    await cmd_help(message, db)
