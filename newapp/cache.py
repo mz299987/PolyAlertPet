@@ -12,26 +12,15 @@ except ImportError:
 
 
 class Cache:
-    """Класс для работы с кэшем"""
+    """Класс для работы с локальным кэшем"""
     
-    def __init__(self, redis_url: Optional[str] = None):
-        self.redis_url = redis_url
-        self.redis_client: Optional[redis.Redis] = None
+    def __init__(self):
         self.local_cache: Dict[str, Any] = {}
         self.local_cache_ttl: Dict[str, datetime] = {}
         
     async def initialize(self):
         """Инициализация кэша"""
-        if self.redis_url and REDIS_AVAILABLE:
-            try:
-                self.redis_client = redis.from_url(self.redis_url)
-                await self.redis_client.ping()
-                print("✅ Redis подключен")
-            except Exception as e:
-                print(f"⚠️ Redis недоступен: {e}. Используется локальный кэш")
-                self.redis_client = None
-        else:
-            print("ℹ️ Redis не установлен. Используется локальный кэш")
+        print("✅ Локальный кэш инициализирован")
     
     def _generate_key(self, func_name: str, *args, **kwargs) -> str:
         """Генерирует ключ кэша"""
@@ -41,19 +30,14 @@ class Cache:
     async def get(self, key: str) -> Optional[Any]:
         """Получение значения из кэша"""
         try:
+            # Проверяем локальный кэш
             if key in self.local_cache:
                 if datetime.now() < self.local_cache_ttl.get(key, datetime.min):
                     return self.local_cache[key]
                 else:
+                    # Удаляем просроченный кэш
                     del self.local_cache[key]
                     del self.local_cache_ttl[key]
-            
-            if self.redis_client:
-                value = await self.redis_client.get(key)
-                if value:
-                    self.local_cache[key] = json.loads(value)
-                    self.local_cache_ttl[key] = datetime.now() + timedelta(seconds=10)
-                    return self.local_cache[key]
         except Exception as e:
             print(f"❌ Ошибка получения из кэша {key}: {e}")
         
@@ -62,28 +46,20 @@ class Cache:
     async def set(self, key: str, value: Any, ttl: int = 300):
         """Установка значения в кэш"""
         try:
+            # Сохраняем в локальный кэш
             self.local_cache[key] = value
             self.local_cache_ttl[key] = datetime.now() + timedelta(seconds=ttl)
-            
-            if self.redis_client:
-                await self.redis_client.setex(
-                    key, 
-                    ttl, 
-                    json.dumps(value, default=str)
-                )
         except Exception as e:
             print(f"❌ Ошибка сохранения в кэш {key}: {e}")
     
     async def delete(self, key: str):
         """Удаление значения из кэша"""
         try:
+            # Удаляем из локального кэша
             if key in self.local_cache:
                 del self.local_cache[key]
             if key in self.local_cache_ttl:
                 del self.local_cache_ttl[key]
-            
-            if self.redis_client:
-                await self.redis_client.delete(key)
         except Exception as e:
             print(f"❌ Ошибка удаления из кэша {key}: {e}")
     
@@ -95,12 +71,13 @@ class Cache:
         if cached_lang:
             return cached_lang
         
-        return "ru"
+        # Если нет в кэше, возвращаем английский по умолчанию
+        return "en"
     
     async def set_user_language(self, user_id: int, language: str):
         """Сохраняет язык пользователя в кэш"""
         cache_key = f"user_lang:{user_id}"
-        await self.set(cache_key, language, ttl=3600)
+        await self.set(cache_key, language, ttl=3600)  # Кэшируем на 1 час
     
     async def get_market_data(self, market_id: str) -> Optional[Dict]:
         """Получает данные рынка из кэша"""
@@ -138,9 +115,9 @@ class Cache:
         await self.delete(cache_key)
     
     async def close(self):
-        """Закрытие соединений"""
-        if self.redis_client:
-            await self.redis_client.close()
+        """Закрытие кэша"""
+        self.local_cache.clear()
+        self.local_cache_ttl.clear()
 
 
 def cache_method(ttl: Optional[int] = None):
