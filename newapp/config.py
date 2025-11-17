@@ -8,7 +8,6 @@ class Config:
     """Конфигурация приложения"""
     bot_token: str
     database_url: str
-    redis_url: Optional[str] = None
     cache_ttl: int = 300
     sync_interval: int = 300
     notification_threshold: float = 1000.0
@@ -23,7 +22,6 @@ class Config:
         """Создает конфигурацию из переменных окружения"""
         bot_token = os.getenv("BOT_TOKEN")
         database_url = os.getenv("DATABASE_URL")
-        redis_url = os.getenv("REDIS_URL")
         port = int(os.getenv("PORT", "8000"))
         
         # Получаем ID администраторов из переменной окружения
@@ -38,7 +36,6 @@ class Config:
         return cls(
             bot_token=bot_token,
             database_url=database_url,
-            redis_url=redis_url,
             admin_ids=admin_ids,
             port=port
         )
