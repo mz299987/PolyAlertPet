@@ -15,40 +15,65 @@ from app.handlers import register_handlers
 
 
 async def main():
-    # читаем конфиг из ENV
-    cfg = Config.from_env()
-    core.config = cfg
-
-    # создаём Bot, пул БД и HTTP-клиент и кладём в core
-    core.bot = Bot(
-        token=cfg.bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    core.db_pool = await asyncpg.create_pool(dsn=cfg.database_url)
-    core.http_client = httpx.AsyncClient(timeout=20.0)
-
-    # инициализация БД
-    await init_db(core.db_pool)
-
-    # регистрируем все хэндлеры (импорт модулей handlers/*)
-    register_handlers()
-
-    # health-сервер для Koyeb
-    await start_health_server()
-
-    # фоновые задачи
-    asyncio.create_task(monitor_positions())
-    asyncio.create_task(monitor_whales())
-
-    # запускаем long polling
     try:
+        # читаем конфиг из ENV
+        cfg = Config.from_env()
+        core.config = cfg
+        
+        print("✅ Конфигурация загружена")
+
+        # создаём Bot, пул БД и HTTP-клиент и кладём в core
+        core.bot = Bot(
+            token=cfg.bot_token,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        )
+        
+        print("✅ Бот создан")
+        
+        # Подключение к БД
+        core.db_pool = await asyncpg.create_pool(dsn=cfg.database_url)
+        print("✅ Подключение к БД успешно")
+        
+        core.http_client = httpx.AsyncClient(timeout=20.0)
+        print("✅ HTTP-клиент создан")
+
+        # инициализация БД
+        await init_db(core.db_pool)
+        print("✅ БД инициализирована")
+
+        # регистрируем все хэндлеры (импорт модулей handlers/*)
+        register_handlers()
+        print("✅ Хэндлеры зарегистрированы")
+
+        # health-сервер для Koyeb
+        await start_health_server()
+        print("✅ Health-сервер запущен")
+
+        # фоновые задачи
+        asyncio.create_task(monitor_positions())
+        asyncio.create_task(monitor_whales())
+        print("✅ Фоновые задачи запущены")
+
+        print("🚀 Запускаем бота...")
+        
+        # запускаем long polling
         await core.dp.start_polling(
             core.bot, allowed_updates=core.dp.resolve_used_update_types()
         )
+        
+    except Exception as e:
+        print(f"❌ Ошибка при запуске: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
     finally:
-        await core.http_client.aclose()
-        await core.db_pool.close()
-        await core.bot.session.close()
+        print("🛑 Останавливаем бота...")
+        if core.http_client:
+            await core.http_client.aclose()
+        if core.db_pool:
+            await core.db_pool.close()
+        if core.bot:
+            await core.bot.session.close()
 
 
 if __name__ == "__main__":
