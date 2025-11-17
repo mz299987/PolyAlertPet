@@ -95,3 +95,32 @@ async def resolve_wallet_or_profile(text: str) -> Optional[str]:
         return addr_from_html
     except Exception:
         return None
+
+
+async def pm_get_active_markets(address: str) -> List[Dict[str, Any]]:
+    """Получает список активных событий для кошелька"""
+    assert core.http_client is not None
+    
+    try:
+        # Получаем все позиции кошелька
+        positions = await pm_get_positions(address)
+        
+        # Группируем позиции по событиям
+        active_markets = {}
+        for position in positions:
+            market_id = position.get("marketId") or position.get("conditionId")
+            if not market_id:
+                continue
+                
+            if market_id not in active_markets:
+                active_markets[market_id] = {
+                    "marketId": market_id,
+                    "title": position.get("title") or position.get("marketTitle") or "Unknown Market",
+                    "positions": []
+                }
+            
+            active_markets[market_id]["positions"].append(position)
+        
+        return list(active_markets.values())
+    except Exception:
+        return []
