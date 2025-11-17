@@ -89,7 +89,12 @@ async def cb_set_language_start(callback: CallbackQuery, db: Database):
         text += "3. Start tracking your positions!"
     
     await callback.message.edit_text(
-        text,
+        text
+    )
+    
+    # Отправляем главное меню как новое сообщение
+    await callback.message.answer(
+        "Главное меню" if language == "ru" else "Main menu",
         reply_markup=Keyboards.get_main_menu(language)
     )
     await callback.answer()
