@@ -15,11 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Копирование requirements и установка зависимостей
-COPY newapp/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Копирование исходного кода
-COPY newapp/ .
+COPY . .
 
 # Запуск приложения
 CMD ["python", "main.py"]
