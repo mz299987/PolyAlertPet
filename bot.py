@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -59,9 +61,31 @@ class PolymarketBot:
         
         self.logger.info("✅ Бот настроен")
     
+    async def start_health_server(self):
+        """Запуск health-сервера для Koyeb"""
+        async def health_handler(request):
+            return web.Response(text="OK")
+        
+        app = web.Application()
+        app.router.add_get("/", health_handler)
+        app.router.add_get("/health", health_handler)
+        
+        runner = web.AppRunner(app)
+        await runner.setup()
+        
+        port = int(os.getenv("PORT", "8000"))
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        
+        self.logger.info(f"✅ Health-сервер запущен на порту {port}")
+        return runner
+    
     async def start(self):
         """Запуск бота"""
         try:
+            # Запускаем health-сервер
+            health_runner = await self.start_health_server()
+            
             self.logger.info("🚀 Запуск бота...")
             await self.dp.start_polling(
                 self.bot,
