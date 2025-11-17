@@ -15,12 +15,7 @@ from app.handlers import register_handlers
 
 
 async def main():
-    health_runner = None
     try:
-        # СНАЧАЛА запускаем health-сервер
-        health_runner = await start_health_server()
-        print("✅ Health-сервер запущен")
-
         # читаем конфиг из ENV
         cfg = Config.from_env()
         core.config = cfg
@@ -50,6 +45,11 @@ async def main():
         register_handlers()
         print("✅ Хэндлеры зарегистрированы")
 
+        # health-сервер для Koyeb
+        # Временно отключаем для отладки
+        # await start_health_server()
+        print("✅ Health-сервер отключен (временно)")
+
         # фоновые задачи
         asyncio.create_task(monitor_positions())
         asyncio.create_task(monitor_whales())
@@ -69,9 +69,6 @@ async def main():
         raise
     finally:
         print("🛑 Останавливаем бота...")
-        # Закрываем health-сервер
-        if health_runner:
-            await health_runner.cleanup()
         if core.http_client:
             await core.http_client.aclose()
         if core.db_pool:
