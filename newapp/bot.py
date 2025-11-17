@@ -10,7 +10,10 @@ from httpx import AsyncClient
 from newapp.config import Config
 from newapp.database import Database
 from newapp.polymarket import PolymarketAPI
-from newapp.handlers import start, wallets, status
+from newapp.cache import Cache
+from newapp.security import Security
+from newapp.notifications import NotificationManager
+from newapp.handlers import start, wallets, status, analytics, settings
 
 
 class PolymarketBot:
@@ -23,6 +26,9 @@ class PolymarketBot:
         self.db: Database = None
         self.http_client: AsyncClient = None
         self.polymarket: PolymarketAPI = None
+        self.cache: Cache = None
+        self.security: Security = None
+        self.notifications: NotificationManager = None
         
         # Настройка логирования
         logging.basicConfig(
@@ -45,19 +51,31 @@ class PolymarketBot:
         self.db = Database(self.config.database_url)
         self.http_client = AsyncClient(timeout=30.0)
         self.polymarket = PolymarketAPI(self.http_client)
+        self.cache = Cache(self.config.redis_url)
+        self.security = Security(self.config.rate_limit_per_minute)
+        self.notifications = NotificationManager(self.bot, self.db, self.polymarket)
         
         # Подключение к базе данных
         await self.db.connect()
         self.logger.info("✅ База данных подключена")
         
+        # Инициализация кэша
+        await self.cache.initialize()
+        self.logger.info("✅ Кэш инициализирован")
+        
         # Регистрация зависимостей
         self.dp["db"] = self.db
         self.dp["polymarket"] = self.polymarket
+        self.dp["cache"] = self.cache
+        self.dp["security"] = self.security
+        self.dp["notifications"] = self.notifications
         
         # Регистрация роутеров
         self.dp.include_router(start.router)
         self.dp.include_router(wallets.router)
         self.dp.include_router(status.router)
+        self.dp.include_router(analytics.router)
+        self.dp.include_router(settings.router)
         
         self.logger.info("✅ Бот настроен")
     
