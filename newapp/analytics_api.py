@@ -1,248 +1,312 @@
-"""
-Модуль аналитики и поиска для бота Polymarket
-"""
-
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
-from aiogram.filters import Command
-from typing import List, Dict, Any
+import httpx
 import asyncio
-
-from newapp.database import Database
-from newapp.polymarket import PolymarketAPI
-from newapp.analytics_api import PolymarketAnalyticsAPI, AnalyticsManager
-from newapp.keyboards import Keyboards
-from newapp.cache import Cache
-
-router = Router()
+import logging
+from typing import Dict, List, Any, Optional
+from datetime import datetime, timedelta
+import json
 
 
-@router.message(F.text.in_(["📊 Аналитика", "📊 Analytics"]))
-async def cmd_analytics(message: Message, db: Database, cache: Cache):
-    """Главное меню аналитики"""
-    language = await db.get_user_language(message.from_user.id)
+class PolymarketAnalyticsAPI:
+    """Класс для получения актуальных данных аналитики из Polymarket API"""
     
-    if language == "ru":
-        text = "📊 <b>Аналитика портфеля</b>\n\nВыберите тип анализа:"
-    else:
-        text = "📊 <b>Portfolio Analytics</b>\n\nSelect analysis type:"
+    BASE_URL = "https://data-api.polymarket.com"
     
-    await message.answer(
-        text,
-        reply_markup=Keyboards.get_analytics_menu(language)
-    )
-
-
-@router.callback_query(F.data == "portfolio_distribution")
-async def cb_portfolio_distribution(callback: CallbackQuery, db: Database, polymarket: PolymarketAPI):
-    """График распределения портфеля"""
-    language = await db.get_user_language(callback.from_user.id)
-    wallets = await db.get_user_wallets(callback.from_user.id)
+    def __init__(self, http_client: httpx.AsyncClient):
+        self.http_client = http_client
+        self.logger = logging.getLogger(__name__)
     
-    if not wallets:
-        if language == "ru":
-            text = "❌ У вас нет добавленных кошельков."
-        else:
-            text = "❌ You don't have any wallets added."
-        await callback.message.edit_text(text)
-        return
+    async def get_market_data(self, market_id: str) -> Optional[Dict[str, Any]]:
+        """Получает актуальные данные по рынку"""
+        try:
+            response = await self.http_client.get(
+                f"{self.BASE_URL}/markets/{market_id}"
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Ошибка получения данных рынка {market_id}: {e}")
+            return None
     
-    # Собираем данные по всем кошелькам
-    total_value = 0.0
-    market_data = {}
+    async def get_active_markets(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Получает список активных рынков"""
+        try:
+            response = await self.http_client.get(
+                f"{self.BASE_URL}/markets",
+                params={"active": "true", "limit": limit}
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("markets", []) if isinstance(data, dict) else data
+        except Exception as e:
+            self.logger.error(f"Ошибка получения активных рынков: {e}")
+            return []
     
-    for wallet in wallets:
-        positions = await polymarket.get_wallet_positions(wallet['address'])
-        
-        for position in positions:
-            market_title = position.get('title') or position.get('marketTitle') or 'Unknown'
-            value = float(position.get('value') or 0)
+    async def get_market_volume(self, market_id: str, days: int = 7) -> Dict[str, float]:
+        """Получает объем торгов за период"""
+        try:
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
             
-            if market_title not in market_data:
-                market_data[market_title] = 0.0
-            
-            market_data[market_title] += value
-            total_value += value
+            response = await self.http_client.get(
+                f"{self.BASE_URL}/markets/{market_id}/volume",
+                params={
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat()
+                }
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Ошибка получения объема рынка {market_id}: {e}")
+            return {"total_volume": 0.0, "daily_volume": {}}
     
-    if total_value == 0:
-        if language == "ru":
-            text = "📊 <b>Распределение портфеля</b>\n\nНет активных позиций для анализа."
-        else:
-            text = "📊 <b>Portfolio Distribution</b>\n\nNo active positions for analysis."
-    else:
-        # Сортируем рынки по объему
-        sorted_markets = sorted(market_data.items(), key=lambda x: x[1], reverse=True)
-        
-        if language == "ru":
-            text = f"📊 <b>Распределение портфеля</b>\n\nОбщая стоимость: <b>{total_value:.2f} USDC</b>\n\n"
-        else:
-            text = f"📊 <b>Portfolio Distribution</b>\n\nTotal value: <b>{total_value:.2f} USDC</b>\n\n"
-        
-        # Создаем текстовый график
-        for market, value in sorted_markets[:10]:  # Топ-10 рынков
-            percentage = (value / total_value) * 100
-            bar_length = int(percentage / 5)  # 20 символов для 100%
-            bar = "█" * bar_length + "░" * (20 - bar_length)
+    async def get_top_markets_by_volume(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Получает топ рынков по объему торгов"""
+        try:
+            markets = await self.get_active_markets(limit * 2)
             
-            text += f"{market[:30]}\n{bar} {percentage:.1f}% ({value:.2f} USDC)\n\n"
-        
-        if len(sorted_markets) > 10:
-            if language == "ru":
-                text += f"... и еще {len(sorted_markets) - 10} рынков"
+            # Сортируем по объему и берем топ
+            markets_with_volume = []
+            for market in markets:
+                volume_data = await self.get_market_volume(market.get("id", ""), days=1)
+                total_volume = volume_data.get("total_volume", 0.0)
+                
+                markets_with_volume.append({
+                    "id": market.get("id", ""),
+                    "title": market.get("title", "Unknown Market"),
+                    "volume": total_volume,
+                    "liquidity": market.get("liquidity", 0.0),
+                    "outcomes": market.get("outcomes", [])
+                })
+            
+            # Сортируем по объему в убывающем порядке
+            markets_with_volume.sort(key=lambda x: x["volume"], reverse=True)
+            return markets_with_volume[:limit]
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка получения топ рынков: {e}")
+            return []
+    
+    async def get_portfolio_analysis(self, wallet_address: str) -> Dict[str, Any]:
+        """Анализ портфеля кошелька"""
+        try:
+            # Получаем позиции кошелька
+            response = await self.http_client.get(
+                f"{self.BASE_URL}/positions",
+                params={"user": wallet_address, "sizeThreshold": 0}
+            )
+            response.raise_for_status()
+            positions = response.json()
+            
+            if not positions:
+                return {"total_value": 0.0, "markets": [], "pnl": 0.0}
+            
+            # Рассчитываем общую стоимость
+            total_value = sum(float(pos.get("value", 0)) for pos in positions)
+            total_pnl = sum(float(pos.get("cashPnl", 0)) for pos in positions)
+            
+            # Группируем по рынкам
+            markets = {}
+            for position in positions:
+                market_id = position.get("marketId") or position.get("conditionId")
+                if not market_id:
+                    continue
+                    
+                if market_id not in markets:
+                    markets[market_id] = {
+                        "id": market_id,
+                        "title": position.get("title") or position.get("marketTitle", "Unknown"),
+                        "positions": [],
+                        "total_value": 0.0,
+                        "total_pnl": 0.0
+                    }
+                
+                markets[market_id]["positions"].append(position)
+                markets[market_id]["total_value"] += float(position.get("value", 0))
+                markets[market_id]["total_pnl"] += float(position.get("cashPnl", 0))
+            
+            # Сортируем рынки по стоимости
+            sorted_markets = sorted(markets.values(), key=lambda x: x["total_value"], reverse=True)
+            
+            return {
+                "total_value": total_value,
+                "total_pnl": total_pnl,
+                "market_count": len(sorted_markets),
+                "markets": sorted_markets
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка анализа портфеля {wallet_address}: {e}")
+            return {"total_value": 0.0, "markets": [], "pnl": 0.0}
+    
+    async def get_volatility_analysis(self, market_id: str, days: int = 30) -> Dict[str, Any]:
+        """Анализ волатильности рынка"""
+        try:
+            # Получаем исторические данные цен
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+            
+            response = await self.http_client.get(
+                f"{self.BASE_URL}/markets/{market_id}/prices",
+                params={
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "interval": "1d"
+                }
+            )
+            response.raise_for_status()
+            price_data = response.json()
+            
+            if not price_data:
+                return {"volatility": 0.0, "price_changes": [], "analysis": "Low"}
+            
+            # Рассчитываем волатильность
+            prices = [float(entry.get("price", 0)) for entry in price_data if entry.get("price")]
+            if len(prices) < 2:
+                return {"volatility": 0.0, "price_changes": [], "analysis": "Low"}
+            
+            # Расчет стандартного отклонения
+            avg_price = sum(prices) / len(prices)
+            variance = sum((p - avg_price) ** 2 for p in prices) / len(prices)
+            volatility = variance ** 0.5
+            
+            # Анализ уровня волатильности
+            if volatility < 0.05:
+                analysis = "Low"
+            elif volatility < 0.15:
+                analysis = "Medium"
             else:
-                text += f"... and {len(sorted_markets) - 10} more markets"
+                analysis = "High"
+            
+            return {
+                "volatility": volatility,
+                "price_changes": [prices[i] - prices[i-1] for i in range(1, len(prices))],
+                "analysis": analysis,
+                "price_range": {"min": min(prices), "max": max(prices)}
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка анализа волатильности {market_id}: {e}")
+            return {"volatility": 0.0, "price_changes": [], "analysis": "Unknown"}
     
-    await callback.message.edit_text(
-        text,
-        reply_markup=Keyboards.get_back_button(language)
-    )
-    await callback.answer()
+    async def get_whale_activity(self, min_amount: float = 1000.0) -> List[Dict[str, Any]]:
+        """Получает информацию о крупных сделках (китах)"""
+        try:
+            # Получаем последние крупные транзакции
+            response = await self.http_client.get(
+                f"{self.BASE_URL}/trades",
+                params={
+                    "min_amount": min_amount,
+                    "limit": 20,
+                    "sort": "desc"
+                }
+            )
+            response.raise_for_status()
+            trades = response.json()
+            
+            whale_trades = []
+            for trade in trades:
+                whale_trades.append({
+                    "market_id": trade.get("marketId", ""),
+                    "amount": float(trade.get("amount", 0)),
+                    "price": float(trade.get("price", 0)),
+                    "timestamp": trade.get("timestamp", ""),
+                    "type": "Buy" if trade.get("isBuy", False) else "Sell"
+                })
+            
+            return whale_trades[:10]  # Возвращаем топ 10
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка получения данных о китах: {e}")
+            return []
 
 
-@router.callback_query(F.data == "top_markets")
-async def cb_top_markets(callback: CallbackQuery, cache: Cache):
-    """Топ рынков по объему"""
-    language = await cache.get_user_language(callback.from_user.id)
+class AnalyticsManager:
+    """Менеджер для работы с аналитикой"""
     
-    # Получаем кэшированные данные о топ рынках
-    # В реальном приложении здесь будет запрос к Polymarket API
+    def __init__(self, analytics_api, db):
+        self.analytics_api = analytics_api
+        self.db = db
+        self.logger = logging.getLogger(__name__)
     
-    if language == "ru":
-        text = "🔥 <b>Топ рынков по объему</b>\n\n"
-        text += "1. US Elections 2024 - $2.5M\n"
-        text += "2. ETH ETF Approval - $1.8M\n"
-        text += "3. Fed Rate Decision - $1.2M\n"
-        text += "4. Bitcoin Halving - $950K\n"
-        text += "5. Climate Events - $780K\n\n"
-        text += "🔄 Данные обновляются каждые 5 минут"
-    else:
-        text = "🔥 <b>Top Markets by Volume</b>\n\n"
-        text += "1. US Elections 2024 - $2.5M\n"
-        text += "2. ETH ETF Approval - $1.8M\n"
-        text += "3. Fed Rate Decision - $1.2M\n"
-        text += "4. Bitcoin Halving - $950K\n"
-        text += "5. Climate Events - $780K\n\n"
-        text += "🔄 Data updates every 5 minutes"
-    
-    await callback.message.edit_text(
-        text,
-        reply_markup=Keyboards.get_back_button(language)
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "volatility_analysis")
-async def cb_volatility_analysis(callback: CallbackQuery, db: Database, polymarket: PolymarketAPI):
-    """Анализ волатильности"""
-    language = await db.get_user_language(callback.from_user.id)
-    wallets = await db.get_user_wallets(callback.from_user.id)
-    
-    if not wallets:
-        if language == "ru":
-            text = "❌ У вас нет добавленных кошельков."
-        else:
-            text = "❌ You don't have any wallets added."
-        await callback.message.edit_text(text)
-        return
-    
-    # Собираем данные по PnL для анализа волатильности
-    total_pnl = 0.0
-    max_pnl = 0.0
-    min_pnl = 0.0
-    
-    for wallet in wallets:
-        positions = await polymarket.get_wallet_positions(wallet['address'])
-        wallet_pnl = polymarket.calculate_total_pnl(positions)
+    async def get_user_portfolio_report(self, user_id: int) -> Dict[str, Any]:
+        """Получает отчет по портфелю пользователя"""
+        wallets = await self.db.get_user_wallets(user_id)
+        if not wallets:
+            return {"error": "No wallets found"}
         
-        total_pnl += wallet_pnl
-        max_pnl = max(max_pnl, wallet_pnl)
-        min_pnl = min(min_pnl, wallet_pnl)
-    
-    volatility = max_pnl - min_pnl
-    
-    if language == "ru":
-        text = "📈 <b>Анализ волатильности</b>\n\n"
-        text += f"Общий PnL: <b>{total_pnl:+.2f} USDC</b>\n"
-        text += f"Максимальный PnL: <b>{max_pnl:+.2f} USDC</b>\n"
-        text += f"Минимальный PnL: <b>{min_pnl:+.2f} USDC</b>\n"
-        text += f"Волатильность: <b>{volatility:.2f} USDC</b>\n\n"
+        # Анализируем первый кошелек
+        wallet_address = wallets[0]["address"]
+        portfolio_data = await self.analytics_api.get_portfolio_analysis(wallet_address)
         
-        if volatility > 1000:
-            text += "⚠️ <b>Высокая волатильность</b>\n"
-            text += "Рекомендуется диверсификация"
-        elif volatility > 500:
-            text += "🟡 <b>Средняя волатильность</b>\n"
-            text += "Умеренный риск"
-        else:
-            text += "🟢 <b>Низкая волатильность</b>\n"
-            text += "Стабильный портфель"
-    else:
-        text = "📈 <b>Volatility Analysis</b>\n\n"
-        text += f"Total PnL: <b>{total_pnl:+.2f} USDC</b>\n"
-        text += f"Max PnL: <b>{max_pnl:+.2f} USDC</b>\n"
-        text += f"Min PnL: <b>{min_pnl:+.2f} USDC</b>\n"
-        text += f"Volatility: <b>{volatility:.2f} USDC</b>\n\n"
+        return {
+            "wallet_address": wallet_address,
+            "total_value": portfolio_data["total_value"],
+            "total_pnl": portfolio_data["total_pnl"],
+            "market_count": portfolio_data["market_count"],
+            "markets": portfolio_data["markets"][:5]  # Топ 5 рынков
+        }
+    
+    async def get_detailed_analytics(self, user_id: int) -> Dict[str, Any]:
+        """Получает детальную аналитику"""
+        wallets = await self.db.get_user_wallets(user_id)
+        if not wallets:
+            return {"error": "No wallets found"}
         
-        if volatility > 1000:
-            text += "⚠️ <b>High Volatility</b>\n"
-            text += "Diversification recommended"
-        elif volatility > 500:
-            text += "🟡 <b>Medium Volatility</b>\n"
-            text += "Moderate risk"
-        else:
-            text += "🟢 <b>Low Volatility</b>\n"
-            text += "Stable portfolio"
+        wallet_address = wallets[0]["address"]
+        portfolio_data = await self.analytics_api.get_portfolio_analysis(wallet_address)
+        
+        # Получаем данные по волатильности для основных рынков
+        volatility_data = {}
+        for market in portfolio_data["markets"][:3]:  # Топ 3 рынка
+            vol_data = await self.analytics_api.get_volatility_analysis(market["id"])
+            volatility_data[market["id"]] = vol_data
+        
+        # Получаем информацию о китах
+        whale_activity = await self.analytics_api.get_whale_activity()
+        
+        return {
+            "portfolio": portfolio_data,
+            "volatility": volatility_data,
+            "whale_activity": whale_activity,
+            "timestamp": datetime.now().isoformat()
+        }
     
-    await callback.message.edit_text(
-        text,
-        reply_markup=Keyboards.get_back_button(language)
-    )
-    await callback.answer()
-
-
-@router.message(F.text.in_(["🔍 Поиск", "🔍 Search"]))
-async def cmd_search(message: Message):
-    """Поиск по рынкам и событиям"""
-    language = await get_user_language(message.from_user.id)  # Функция будет реализована
+    async def get_top_markets_report(self) -> Dict[str, Any]:
+        """Получает отчет по топ рынкам"""
+        top_markets = await self.analytics_api.get_top_markets_by_volume(10)
+        
+        # Добавляем анализ волатильности для топ рынков
+        for market in top_markets[:5]:
+            vol_data = await self.analytics_api.get_volatility_analysis(market["id"])
+            market["volatility"] = vol_data
+        
+        return {
+            "top_markets": top_markets,
+            "total_count": len(top_markets),
+            "timestamp": datetime.now().isoformat()
+        }
     
-    if language == "ru":
-        text = "🔍 <b>Поиск по рынкам</b>\n\n"
-        text += "Отправьте ключевое слово для поиска событий на Polymarket.\n"
-        text += "Примеры:\n"
-        text += "• elections\n"
-        text += "• bitcoin\n"
-        text += "• climate"
-    else:
-        text = "🔍 <b>Market Search</b>\n\n"
-        text += "Send a keyword to search for events on Polymarket.\n"
-        text += "Examples:\n"
-        text += "• elections\n"
-        text += "• bitcoin\n"
-        text += "• climate"
-    
-    await message.answer(text)
-
-
-@router.message(Command("search"))
-async def cmd_search_text(message: Message, polymarket: PolymarketAPI):
-    """Обработка текстового поиска"""
-    query = message.text.replace("/search", "").strip()
-    
-    if not query:
-        await message.answer("❌ Пожалуйста, укажите поисковый запрос")
-        return
-    
-    # В реальном приложении здесь будет запрос к Polymarket Search API
-    # Покажем заглушку
-    
-    await message.answer(f"🔍 <b>Результаты поиска для: {query}</b>\n\n"
-                        "1. US Elections 2024 - $2.5M\n"
-                        "2. ETH ETF Approval - $1.8M\n"
-                        "3. Bitcoin Halving - $950K\n\n"
-                        "🔄 Реализация поиска в разработке...")
-
-
-async def get_user_language(user_id: int) -> str:
-    """Вспомогательная функция для получения языка пользователя"""
-    # Временная реализация - будет заменена на работу с базой данных
-    return "ru"
+    async def get_volatility_report(self, user_id: int) -> Dict[str, Any]:
+        """Получает отчет по волатильности"""
+        wallets = await self.db.get_user_wallets(user_id)
+        if not wallets:
+            return {"error": "No wallets found"}
+        
+        wallet_address = wallets[0]["address"]
+        portfolio_data = await self.analytics_api.get_portfolio_analysis(wallet_address)
+        
+        volatility_report = {}
+        for market in portfolio_data["markets"]:
+            vol_data = await self.analytics_api.get_volatility_analysis(market["id"])
+            volatility_report[market["id"]] = {
+                "title": market["title"],
+                "volatility": vol_data["volatility"],
+                "analysis": vol_data["analysis"],
+                "price_range": vol_data.get("price_range", {})
+            }
+        
+        return {
+            "volatility_report": volatility_report,
+            "timestamp": datetime.now().isoformat()
+        }
