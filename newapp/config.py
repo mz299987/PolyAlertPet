@@ -16,6 +16,8 @@ class Config:
     port: int = 8000
     max_wallets_per_user: int = 10
     background_sync_interval: int = 300  # 5 минут
+    builder_key: Optional[str] = None
+    builder_secret: Optional[str] = None
     
     @classmethod
     def from_env(cls) -> "Config":
@@ -28,6 +30,10 @@ class Config:
         admin_ids_str = os.getenv("ADMIN_IDS", "")
         admin_ids = [int(x.strip()) for x in admin_ids_str.split(",") if x.strip()]
         
+        # Получаем ключи Builder API (опционально)
+        builder_key = os.getenv("BUILDER_KEY")
+        builder_secret = os.getenv("BUILDER_SECRET")
+        
         if not bot_token:
             raise ValueError("BOT_TOKEN is required")
         if not database_url:
@@ -37,5 +43,7 @@ class Config:
             bot_token=bot_token,
             database_url=database_url,
             admin_ids=admin_ids,
-            port=port
+            port=port,
+            builder_key=builder_key,
+            builder_secret=builder_secret
         )
