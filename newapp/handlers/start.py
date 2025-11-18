@@ -127,9 +127,9 @@ async def cb_back_to_menu(callback: CallbackQuery, db: Database):
     language = await db.get_user_language(callback.from_user.id)
     
     if language == "ru":
-        text = "Главное меню"
+        text = "👋 <b>Добро пожаловать в Polymarket Tracker!</b>\n\nВыберите раздел из меню ниже 👇"
     else:
-        text = "Main menu"
+        text = "👋 <b>Welcome to Polymarket Tracker!</b>\n\nChoose a section from the menu below 👇"
     
     await callback.message.edit_text(
         text,
