@@ -60,14 +60,14 @@ class Keyboards:
         if language == "ru":
             buttons = [
                 [InlineKeyboardButton(text="📊 Распределение портфеля", callback_data="portfolio_distribution")],
-                [InlineKeyboardButton(text="🔥 Топ рынков", callback_data="top_markets")],
+                [InlineKeyboardButton(text="🔥 Топ рынков", callback_data="top_markets_analytics")],
                 [InlineKeyboardButton(text="📈 Анализ волатильности", callback_data="volatility_analysis")],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_menu")]
             ]
         else:
             buttons = [
                 [InlineKeyboardButton(text="📊 Portfolio Distribution", callback_data="portfolio_distribution")],
-                [InlineKeyboardButton(text="🔥 Top Markets", callback_data="top_markets")],
+                [InlineKeyboardButton(text="🔥 Top Markets", callback_data="top_markets_analytics")],
                 [InlineKeyboardButton(text="📈 Volatility Analysis", callback_data="volatility_analysis")],
                 [InlineKeyboardButton(text="⬅️ Back", callback_data="back_to_menu")]
             ]
