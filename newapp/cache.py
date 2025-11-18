@@ -94,8 +94,8 @@ class Cache:
         cache_key = f"wallet_positions:{address}"
         return await self.get(cache_key)
     
-    async def set_wallet_positions(self, address: str, positions: list, ttl: int = 60):
-        """Сохраняет позиции кошелька в кэш"""
+    async def set_wallet_positions(self, address: str, positions: list, ttl: int = 30):
+        """Сохраняет позиции кошелька в кэш (TTL 30 секунд для актуальности)"""
         cache_key = f"wallet_positions:{address}"
         await self.set(cache_key, positions, ttl=ttl)
     
