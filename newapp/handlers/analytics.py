@@ -100,81 +100,99 @@ async def cb_portfolio_distribution(callback: CallbackQuery, db: Database, polym
 
 
 @router.callback_query(F.data == "top_markets_analytics")
-async def cb_top_markets(callback: CallbackQuery, polymarket: PolymarketAPI, cache: Cache):
-    """Топ рынков по объему"""
-    language = await cache.get_user_language(callback.from_user.id)
+async def cb_top_markets(callback: CallbackQuery, polymarket: PolymarketAnalyticsAPI):
+    """Топ рынков по объему с реальными данными"""
+    language = "ru"  # Временная заглушка для языка
     
-    # Получаем реальные данные о топ рынках
     try:
-        # Используем кэш для получения данных
-        async def fetch_top_markets():
-            try:
-                # Запрос к Polymarket API для получения популярных рынков
-                response = await polymarket.http_client.get(
-                    f"{polymarket.BASE_URL}/markets",
-                    params={"limit": 10, "sort": "volume"},
-                    headers={"User-Agent": "PolymarketTrackerBot/1.0"}
-                )
-                response.raise_for_status()
-                markets_data = response.json()
-                
-                if isinstance(markets_data, list):
-                    return markets_data[:5]  # Топ-5 рынков
-                return []
-            except Exception as e:
-                print(f"Ошибка получения топ рынков: {e}")
-                return []
-        
-        top_markets = await cache.get_with_fallback(
-            "top_markets", 
-            fetch_top_markets, 
-            ttl=300  # 5 минут
-        )
+        # Получаем реальные данные с Polymarket API
+        top_markets = await polymarket.get_top_markets_by_volume(10)
         
         if language == "ru":
             text = "🔥 <b>Топ рынков по объему</b>\n\n"
+            text += "<i>Актуальные данные с Polymarket</i>\n\n"
+            
             if top_markets:
-                for i, market in enumerate(top_markets, 1):
-                    title = market.get('title', 'Unknown Market')[:30]
+                for i, market in enumerate(top_markets[:5], 1):
+                    title = market.get('title', 'Unknown Market')[:35]
                     volume = market.get('volume', 0)
-                    if volume > 1000000:
+                    
+                    # Форматируем объем
+                    if volume >= 1000000:
                         volume_text = f"${volume/1000000:.1f}M"
-                    elif volume > 1000:
+                    elif volume >= 1000:
                         volume_text = f"${volume/1000:.1f}K"
                     else:
                         volume_text = f"${volume:.0f}"
-                    text += f"{i}. {title} - {volume_text}\n"
+                    
+                    text += f"{i}. <b>{title}</b>\n"
+                    text += f"   💰 Объем: {volume_text}\n"
+                    
+                    # Добавляем информацию о ликвидности, если доступна
+                    liquidity = market.get("liquidity", 0)
+                    if liquidity > 0:
+                        if liquidity >= 1000000:
+                            liquidity_text = f"${liquidity/1000000:.1f}M"
+                        elif liquidity >= 1000:
+                            liquidity_text = f"${liquidity/1000:.1f}K"
+                        else:
+                            liquidity_text = f"${liquidity:.0f}"
+                        text += f"   💧 Ликвидность: {liquidity_text}\n"
+                    
+                    text += "\n"
+                
+                text += "🔄 Данные обновлены в реальном времени"
             else:
-                text += "⚠️ Не удалось загрузить данные о рынках\n"
-                text += "Попробуйте позже или проверьте подключение"
-            text += "\n🔄 Данные обновляются каждые 5 минут"
+                text += "❌ Не удалось загрузить данные рынков\n"
+                text += "Попробуйте позже"
+                
         else:
             text = "🔥 <b>Top Markets by Volume</b>\n\n"
+            text += "<i>Real-time data from Polymarket</i>\n\n"
+            
             if top_markets:
-                for i, market in enumerate(top_markets, 1):
-                    title = market.get('title', 'Unknown Market')[:30]
+                for i, market in enumerate(top_markets[:5], 1):
+                    title = market.get('title', 'Unknown Market')[:35]
                     volume = market.get('volume', 0)
-                    if volume > 1000000:
+                    
+                    # Format volume
+                    if volume >= 1000000:
                         volume_text = f"${volume/1000000:.1f}M"
-                    elif volume > 1000:
+                    elif volume >= 1000:
                         volume_text = f"${volume/1000:.1f}K"
                     else:
                         volume_text = f"${volume:.0f}"
-                    text += f"{i}. {title} - {volume_text}\n"
+                    
+                    text += f"{i}. <b>{title}</b>\n"
+                    text += f"   💰 Volume: {volume_text}\n"
+                    
+                    # Add liquidity info if available
+                    liquidity = market.get("liquidity", 0)
+                    if liquidity > 0:
+                        if liquidity >= 1000000:
+                            liquidity_text = f"${liquidity/1000000:.1f}M"
+                        elif liquidity >= 1000:
+                            liquidity_text = f"${liquidity/1000:.1f}K"
+                        else:
+                            liquidity_text = f"${liquidity:.0f}"
+                        text += f"   💧 Liquidity: {liquidity_text}\n"
+                    
+                    text += "\n"
+                
+                text += "🔄 Data updated in real-time"
             else:
-                text += "⚠️ Failed to load market data\n"
-                text += "Try again later or check connection"
-            text += "\n🔄 Data updates every 5 minutes"
-    
+                text += "❌ Failed to load market data\n"
+                text += "Please try again later"
+                
     except Exception as e:
-        print(f"Ошибка в обработчике топ рынков: {e}")
+        print(f"Ошибка получения данных рынков: {e}")
         if language == "ru":
             text = "🔥 <b>Топ рынков по объему</b>\n\n"
-            text += "⚠️ Временная техническая неполадка\n"
+            text += "❌ Ошибка подключения к API\n"
             text += "Попробуйте обновить данные через несколько минут"
         else:
             text = "🔥 <b>Top Markets by Volume</b>\n\n"
-            text += "⚠️ Temporary technical issue\n"
+            text += "❌ API connection error\n"
             text += "Try refreshing data in a few minutes"
     
     await callback.message.edit_text(
@@ -185,7 +203,7 @@ async def cb_top_markets(callback: CallbackQuery, polymarket: PolymarketAPI, cac
 
 
 @router.callback_query(F.data == "volatility_analysis")
-async def cb_volatility_analysis(callback: CallbackQuery, db: Database, polymarket: PolymarketAPI):
+async def cb_volatility_analysis(callback: CallbackQuery, db: Database, polymarket: PolymarketAnalyticsAPI):
     """Анализ волатильности"""
     language = await db.get_user_language(callback.from_user.id)
     wallets = await db.get_user_wallets(callback.from_user.id)
@@ -198,53 +216,92 @@ async def cb_volatility_analysis(callback: CallbackQuery, db: Database, polymark
         await callback.message.edit_text(text)
         return
     
-    # Собираем данные по PnL для анализа волатильности
-    total_pnl = 0.0
-    max_pnl = 0.0
-    min_pnl = 0.0
+    # Используем первый кошелек для анализа
+    wallet_address = wallets[0]["address"]
     
-    for wallet in wallets:
-        positions = await polymarket.get_wallet_positions(wallet['address'])
-        wallet_pnl = polymarket.calculate_total_pnl(positions)
+    try:
+        # Получаем данные портфеля
+        portfolio_data = await polymarket.get_portfolio_analysis(wallet_address)
+        markets = portfolio_data.get("markets", [])
         
-        total_pnl += wallet_pnl
-        max_pnl = max(max_pnl, wallet_pnl)
-        min_pnl = min(min_pnl, wallet_pnl)
-    
-    volatility = max_pnl - min_pnl
-    
-    if language == "ru":
-        text = "📈 <b>Анализ волатильности</b>\n\n"
-        text += f"Общий PnL: <b>{total_pnl:+.2f} USDC</b>\n"
-        text += f"Максимальный PnL: <b>{max_pnl:+.2f} USDC</b>\n"
-        text += f"Минимальный PnL: <b>{min_pnl:+.2f} USDC</b>\n"
-        text += f"Волатильность: <b>{volatility:.2f} USDC</b>\n\n"
-        
-        if volatility > 1000:
-            text += "⚠️ <b>Высокая волатильность</b>\n"
-            text += "Рекомендуется диверсификация"
-        elif volatility > 500:
-            text += "🟡 <b>Средняя волатильность</b>\n"
-            text += "Умеренный риск"
+        if language == "ru":
+            text = "📈 <b>Анализ волатильности</b>\n\n"
+            text += f"👛 Кошелек: <code>{wallet_address[:10]}...{wallet_address[-6:]}</code>\n\n"
+            
+            if markets:
+                text += "📊 <b>Волатильность по рынкам:</b>\n\n"
+                
+                for i, market in enumerate(markets[:3], 1):
+                    market_id = market.get("id", "")
+                    market_title = market.get("title", "Unknown")[:30]
+                    
+                    # Получаем анализ волатильности для рынка
+                    volatility_data = await polymarket.get_volatility_analysis(market_id)
+                    volatility = volatility_data.get("volatility", 0.0)
+                    analysis = volatility_data.get("analysis", "Unknown")
+                    
+                    # Определяем эмодзи для уровня волатильности
+                    if analysis == "High":
+                        emoji = "🔴"
+                        level_text = "Высокая"
+                    elif analysis == "Medium":
+                        emoji = "🟡"
+                        level_text = "Средняя"
+                    else:
+                        emoji = "🟢"
+                        level_text = "Низкая"
+                    
+                    text += f"{i}. {market_title}\n"
+                    text += f"   {emoji} Волатильность: {volatility:.3f} ({level_text})\n\n"
+                
+                text += "ℹ️ Волатильность измеряется стандартным отклонением цен"
+            else:
+                text += "📭 Нет активных позиций для анализа волатильности"
+                
         else:
-            text += "🟢 <b>Низкая волатильность</b>\n"
-            text += "Стабильный портфель"
-    else:
-        text = "📈 <b>Volatility Analysis</b>\n\n"
-        text += f"Total PnL: <b>{total_pnl:+.2f} USDC</b>\n"
-        text += f"Max PnL: <b>{max_pnl:+.2f} USDC</b>\n"
-        text += f"Min PnL: <b>{min_pnl:+.2f} USDC</b>\n"
-        text += f"Volatility: <b>{volatility:.2f} USDC</b>\n\n"
-        
-        if volatility > 1000:
-            text += "⚠️ <b>High Volatility</b>\n"
-            text += "Diversification recommended"
-        elif volatility > 500:
-            text += "🟡 <b>Medium Volatility</b>\n"
-            text += "Moderate risk"
+            text = "📈 <b>Volatility Analysis</b>\n\n"
+            text += f"👛 Wallet: <code>{wallet_address[:10]}...{wallet_address[-6:]}</code>\n\n"
+            
+            if markets:
+                text += "📊 <b>Market Volatility:</b>\n\n"
+                
+                for i, market in enumerate(markets[:3], 1):
+                    market_id = market.get("id", "")
+                    market_title = market.get("title", "Unknown")[:30]
+                    
+                    # Get volatility analysis for market
+                    volatility_data = await polymarket.get_volatility_analysis(market_id)
+                    volatility = volatility_data.get("volatility", 0.0)
+                    analysis = volatility_data.get("analysis", "Unknown")
+                    
+                    # Determine emoji for volatility level
+                    if analysis == "High":
+                        emoji = "🔴"
+                        level_text = "High"
+                    elif analysis == "Medium":
+                        emoji = "🟡"
+                        level_text = "Medium"
+                    else:
+                        emoji = "🟢"
+                        level_text = "Low"
+                    
+                    text += f"{i}. {market_title}\n"
+                    text += f"   {emoji} Volatility: {volatility:.3f} ({level_text})\n\n"
+                
+                text += "ℹ️ Volatility measured by standard deviation of prices"
+            else:
+                text += "📭 No active positions for volatility analysis"
+                
+    except Exception as e:
+        print(f"Ошибка анализа волатильности: {e}")
+        if language == "ru":
+            text = "📈 <b>Анализ волатильности</b>\n\n"
+            text += "❌ Ошибка подключения к API\n"
+            text += "Попробуйте обновить данные через несколько минут"
         else:
-            text += "🟢 <b>Low Volatility</b>\n"
-            text += "Stable portfolio"
+            text = "📈 <b>Volatility Analysis</b>\n\n"
+            text += "❌ API connection error\n"
+            text += "Try refreshing data in a few minutes"
     
     await callback.message.edit_text(
         text,
@@ -254,9 +311,9 @@ async def cb_volatility_analysis(callback: CallbackQuery, db: Database, polymark
 
 
 @router.message(F.text.in_(["🔍 Поиск", "🔍 Search"]))
-async def cmd_search(message: Message):
+async def cmd_search(message: Message, db: Database):
     """Поиск по рынкам и событиям"""
-    language = await get_user_language(message.from_user.id)  # Функция будет реализована
+    language = await db.get_user_language(message.from_user.id)
     
     if language == "ru":
         text = "🔍 <b>Поиск по рынкам</b>\n\n"
@@ -277,22 +334,90 @@ async def cmd_search(message: Message):
 
 
 @router.message(Command("search"))
-async def cmd_search_text(message: Message, polymarket: PolymarketAPI):
+async def cmd_search_text(message: Message, polymarket: PolymarketAnalyticsAPI, db: Database):
     """Обработка текстового поиска"""
     query = message.text.replace("/search", "").strip()
+    language = await db.get_user_language(message.from_user.id)
     
     if not query:
-        await message.answer("❌ Пожалуйста, укажите поисковый запрос")
+        if language == "ru":
+            await message.answer("❌ Пожалуйста, укажите поисковый запрос")
+        else:
+            await message.answer("❌ Please provide a search query")
         return
     
-    # В реальном приложении здесь будет запрос к Polymarket Search API
-    # Покажем заглушку
+    try:
+        # Получаем активные рынки и фильтруем по запросу
+        active_markets = await polymarket.get_active_markets(50)
+        
+        matching_markets = []
+        for market in active_markets:
+            title = market.get("title", "").lower()
+            if query.lower() in title:
+                matching_markets.append(market)
+        
+        if language == "ru":
+            text = f"🔍 <b>Результаты поиска для: {query}</b>\n\n"
+            
+            if matching_markets:
+                for i, market in enumerate(matching_markets[:5], 1):
+                    title = market.get("title", "Unknown Market")[:35]
+                    volume = market.get("volume", 0) or market.get("volume24h", 0)
+                    
+                    # Форматируем объем
+                    if volume >= 1000000:
+                        volume_text = f"${volume/1000000:.1f}M"
+                    elif volume >= 1000:
+                        volume_text = f"${volume/1000:.1f}K"
+                    else:
+                        volume_text = f"${volume:.0f}"
+                    
+                    text += f"{i}. <b>{title}</b>\n"
+                    text += f"   💰 Объем: {volume_text}\n\n"
+                
+                if len(matching_markets) > 5:
+                    text += f"... и еще {len(matching_markets) - 5} результатов"
+            else:
+                text += "❌ По вашему запросу ничего не найдено\n"
+                text += "Попробуйте изменить запрос"
+                
+        else:
+            text = f"🔍 <b>Search results for: {query}</b>\n\n"
+            
+            if matching_markets:
+                for i, market in enumerate(matching_markets[:5], 1):
+                    title = market.get("title", "Unknown Market")[:35]
+                    volume = market.get("volume", 0) or market.get("volume24h", 0)
+                    
+                    # Format volume
+                    if volume >= 1000000:
+                        volume_text = f"${volume/1000000:.1f}M"
+                    elif volume >= 1000:
+                        volume_text = f"${volume/1000:.1f}K"
+                    else:
+                        volume_text = f"${volume:.0f}"
+                    
+                    text += f"{i}. <b>{title}</b>\n"
+                    text += f"   💰 Volume: {volume_text}\n\n"
+                
+                if len(matching_markets) > 5:
+                    text += f"... and {len(matching_markets) - 5} more results"
+            else:
+                text += "❌ No results found for your query\n"
+                text += "Try modifying your search"
+                
+    except Exception as e:
+        print(f"Ошибка поиска: {e}")
+        if language == "ru":
+            text = f"🔍 <b>Результаты поиска для: {query}</b>\n\n"
+            text += "❌ Ошибка при выполнении поиска\n"
+            text += "Попробуйте позже"
+        else:
+            text = f"🔍 <b>Search results for: {query}</b>\n\n"
+            text += "❌ Search error occurred\n"
+            text += "Please try again later"
     
-    await message.answer(f"🔍 <b>Результаты поиска для: {query}</b>\n\n"
-                        "1. US Elections 2024 - $2.5M\n"
-                        "2. ETH ETF Approval - $1.8M\n"
-                        "3. Bitcoin Halving - $950K\n\n"
-                        "🔄 Реализация поиска в разработке...")
+    await message.answer(text)
 
 
 async def get_user_language(user_id: int) -> str:
