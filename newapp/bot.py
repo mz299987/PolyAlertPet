@@ -11,10 +11,11 @@ from newapp.config import Config
 from newapp.database import Database
 from newapp.polymarket import PolymarketAPI
 from newapp.builder_api import PolymarketBuilderAPI
+from newapp.analytics_api import PolymarketAnalyticsAPI
 from newapp.cache import Cache
 from newapp.security import Security
 from newapp.notifications import NotificationManager
-from newapp.handlers import start, wallets, status, analytics, settings, betting
+from newapp.handlers import start, wallets, status, analytics, settings, betting, reports
 
 
 class PolymarketBot:
@@ -58,6 +59,9 @@ class PolymarketBot:
             builder_key=self.config.builder_key,
             builder_secret=self.config.builder_secret
         )
+        
+        # Инициализация Analytics API для актуальных данных
+        self.analytics_api = PolymarketAnalyticsAPI(self.http_client)
         
         self.cache = Cache()
         self.security = Security(self.config.rate_limit_per_minute)
