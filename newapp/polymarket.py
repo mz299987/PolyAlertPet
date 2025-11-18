@@ -12,27 +12,33 @@ class PolymarketAPI:
         self.http_client = http_client
     
     async def get_wallet_positions(self, address: str) -> List[Dict[str, Any]]:
-        """Получает позиции кошелька"""
-        try:
-            # Используем актуальный API эндпоинт для получения позиций
-            response = await self.http_client.get(
-                f"{self.BASE_URL}/positions",
-                params={"user": address, "sizeThreshold": 0, "includeClosed": "false"},
-                headers={"User-Agent": "PolymarketTrackerBot/1.0"}
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            # Проверяем структуру ответа
-            if isinstance(data, list):
-                return data
-            elif isinstance(data, dict) and 'positions' in data:
-                return data['positions']
-            else:
-                return []
-        except Exception as e:
-            print(f"Ошибка получения позиций для {address}: {e}")
-            return []
+        """Получает позиции кошелька с ретраями"""
+        import asyncio
+        
+        for attempt in range(3):  # 3 попытки
+            try:
+                # Используем актуальный API эндпоинт для получения позиций
+                response = await self.http_client.get(
+                    f"{self.BASE_URL}/positions",
+                    params={"user": address, "sizeThreshold": 0, "includeClosed": "false"},
+                    headers={"User-Agent": "PolymarketTrackerBot/1.0"},
+                    timeout=15.0  # Увеличиваем таймаут
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                # Проверяем структуру ответа
+                if isinstance(data, list):
+                    return data
+                elif isinstance(data, dict) and 'positions' in data:
+                    return data['positions']
+                else:
+                    return []
+            except Exception as e:
+                if attempt == 2:  # Последняя попытка
+                    print(f"Ошибка получения позиций для {address}: {e}")
+                    return []
+                await asyncio.sleep(2)  # Ждем перед повторной попыткой
     
     async def get_wallet_value(self, address: str) -> Optional[float]:
         """Получает общую стоимость портфеля"""
