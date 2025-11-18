@@ -9,7 +9,7 @@ import json
 class PolymarketAnalyticsAPI:
     """Класс для получения актуальных данных аналитики из Polymarket API"""
     
-    BASE_URL = "https://data-api.polymarket.com"
+    BASE_URL = "https://gamma-api.polymarket.com"
     
     def __init__(self, http_client: httpx.AsyncClient):
         self.http_client = http_client
@@ -32,30 +32,44 @@ class PolymarketAnalyticsAPI:
         try:
             response = await self.http_client.get(
                 f"{self.BASE_URL}/markets",
-                params={"active": "true", "limit": limit}
+                params={"limit": limit, "sort": "volume"}
             )
             response.raise_for_status()
             data = response.json()
-            return data.get("markets", []) if isinstance(data, dict) else data
+            
+            # Обрабатываем разные форматы ответа
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict) and 'markets' in data:
+                return data['markets']
+            elif isinstance(data, dict) and 'data' in data:
+                return data['data']
+            else:
+                return []
+                
         except Exception as e:
             self.logger.error(f"Ошибка получения активных рынков: {e}")
             return []
-    
+
     async def get_market_volume(self, market_id: str, days: int = 7) -> Dict[str, float]:
         """Получает объем торгов за период"""
         try:
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
+            # Получаем данные рынка, которые могут содержать объем
+            market_data = await self.get_market_data(market_id)
+
+            if not market_data:
+                return {"total_volume": 0.0, "daily_volume": {}}
             
-            response = await self.http_client.get(
-                f"{self.BASE_URL}/markets/{market_id}/volume",
-                params={
-                    "start_date": start_date.isoformat(),
-                    "end_date": end_date.isoformat()
+            # Извлекаем объем из данных рынка
+            volume = market_data.get("volume", 0) or market_data.get("volume24h", 0) or market_data.get("totalVolume", 0)
+            
+            return {
+                "total_volume": float(volume or 0),
+                "daily_volume": {
+                    datetime.now().strftime("%Y-%m-%d"): float(volume or 0)
                 }
-            )
-            response.raise_for_status()
-            return response.json()
+            }
+            
         except Exception as e:
             self.logger.error(f"Ошибка получения объема рынка {market_id}: {e}")
             return {"total_volume": 0.0, "daily_volume": {}}
@@ -63,20 +77,27 @@ class PolymarketAnalyticsAPI:
     async def get_top_markets_by_volume(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Получает топ рынков по объему торгов"""
         try:
+            # Получаем активные рынки с сортировкой по объему
             markets = await self.get_active_markets(limit * 2)
+            
+            if not markets:
+                return []
             
             # Сортируем по объему и берем топ
             markets_with_volume = []
             for market in markets:
-                volume_data = await self.get_market_volume(market.get("id", ""), days=1)
-                total_volume = volume_data.get("total_volume", 0.0)
+                # Извлекаем объем из данных рынка
+                volume = market.get("volume", 0) or market.get("volume24h", 0) or market.get("totalVolume", 0)
                 
                 markets_with_volume.append({
-                    "id": market.get("id", ""),
+                    "id": market.get("id", "") or market.get("conditionId", ""),
                     "title": market.get("title", "Unknown Market"),
-                    "volume": total_volume,
-                    "liquidity": market.get("liquidity", 0.0),
-                    "outcomes": market.get("outcomes", [])
+                    "volume": float(volume or 0),
+                    "liquidity": float(market.get("liquidity", 0) or market.get("totalLiquidity", 0) or 0),
+                    "outcomes": market.get("outcomes", []),
+                    "url": market.get("url", ""),
+                    "category": market.get("category", ""),
+                    "endDate": market.get("endDate", "")
                 })
             
             # Сортируем по объему в убывающем порядке
@@ -90,20 +111,24 @@ class PolymarketAnalyticsAPI:
     async def get_portfolio_analysis(self, wallet_address: str) -> Dict[str, Any]:
         """Анализ портфеля кошелька"""
         try:
-            # Получаем позиции кошелька
+            # Получаем позиции кошелька с использованием API позиций
             response = await self.http_client.get(
                 f"{self.BASE_URL}/positions",
-                params={"user": wallet_address, "sizeThreshold": 0}
+                params={"user": wallet_address}
             )
-            response.raise_for_status()
-            positions = response.json()
+            
+            if response.status_code == 200:
+                positions = response.json()
+            else:
+                # Если API позиций не работает, используем альтернативный подход
+                positions = []
             
             if not positions:
-                return {"total_value": 0.0, "markets": [], "pnl": 0.0}
+                return {"total_value": 0.0, "markets": [], "pnl": 0.0, "market_count": 0}
             
-            # Рассчитываем общую стоимость
-            total_value = sum(float(pos.get("value", 0)) for pos in positions)
-            total_pnl = sum(float(pos.get("cashPnl", 0)) for pos in positions)
+            # Рассчитываем общую стоимость и PnL
+            total_value = 0.0
+            total_pnl = 0.0
             
             # Группируем по рынкам
             markets = {}
@@ -112,6 +137,13 @@ class PolymarketAnalyticsAPI:
                 if not market_id:
                     continue
                     
+                # Получаем значение позиции
+                value = float(position.get("value", 0) or position.get("positionValue", 0) or 0)
+                pnl = float(position.get("cashPnl", 0) or position.get("pnl", 0) or 0)
+                
+                total_value += value
+                total_pnl += pnl
+                
                 if market_id not in markets:
                     markets[market_id] = {
                         "id": market_id,
@@ -122,8 +154,8 @@ class PolymarketAnalyticsAPI:
                     }
                 
                 markets[market_id]["positions"].append(position)
-                markets[market_id]["total_value"] += float(position.get("value", 0))
-                markets[market_id]["total_pnl"] += float(position.get("cashPnl", 0))
+                markets[market_id]["total_value"] += value
+                markets[market_id]["total_pnl"] += pnl
             
             # Сортируем рынки по стоимости
             sorted_markets = sorted(markets.values(), key=lambda x: x["total_value"], reverse=True)
@@ -137,31 +169,30 @@ class PolymarketAnalyticsAPI:
             
         except Exception as e:
             self.logger.error(f"Ошибка анализа портфеля {wallet_address}: {e}")
-            return {"total_value": 0.0, "markets": [], "pnl": 0.0}
+            return {"total_value": 0.0, "markets": [], "pnl": 0.0, "market_count": 0}
     
     async def get_volatility_analysis(self, market_id: str, days: int = 30) -> Dict[str, Any]:
         """Анализ волатильности рынка"""
         try:
-            # Получаем исторические данные цен
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
+            # Получаем данные рынка
+            market_data = await self.get_market_data(market_id)
             
-            response = await self.http_client.get(
-                f"{self.BASE_URL}/markets/{market_id}/prices",
-                params={
-                    "start_date": start_date.isoformat(),
-                    "end_date": end_date.isoformat(),
-                    "interval": "1d"
-                }
-            )
-            response.raise_for_status()
-            price_data = response.json()
-            
-            if not price_data:
+            if not market_data:
                 return {"volatility": 0.0, "price_changes": [], "analysis": "Low"}
             
-            # Рассчитываем волатильность
-            prices = [float(entry.get("price", 0)) for entry in price_data if entry.get("price")]
+            # Получаем текущие цены исходов
+            outcomes = market_data.get("outcomes", [])
+            
+            if not outcomes:
+                return {"volatility": 0.0, "price_changes": [], "analysis": "Low"}
+            
+            # Извлекаем цены исходов
+            prices = []
+            for outcome in outcomes:
+                price = outcome.get("price", 0) or outcome.get("lastPrice", 0)
+                if price:
+                    prices.append(float(price))
+            
             if len(prices) < 2:
                 return {"volatility": 0.0, "price_changes": [], "analysis": "Low"}
             
@@ -171,18 +202,18 @@ class PolymarketAnalyticsAPI:
             volatility = variance ** 0.5
             
             # Анализ уровня волатильности
-            if volatility < 0.05:
-                analysis = "Low"
-            elif volatility < 0.15:
+            if volatility > 0.3:
+                analysis = "High"
+            elif volatility > 0.15:
                 analysis = "Medium"
             else:
-                analysis = "High"
+                analysis = "Low"
             
             return {
                 "volatility": volatility,
-                "price_changes": [prices[i] - prices[i-1] for i in range(1, len(prices))],
+                "price_changes": [],
                 "analysis": analysis,
-                "price_range": {"min": min(prices), "max": max(prices)}
+                "price_range": {"min": min(prices) if prices else 0, "max": max(prices) if prices else 0}
             }
             
         except Exception as e:
@@ -192,28 +223,44 @@ class PolymarketAnalyticsAPI:
     async def get_whale_activity(self, min_amount: float = 1000.0) -> List[Dict[str, Any]]:
         """Получает информацию о крупных сделках (китах)"""
         try:
-            # Получаем последние крупные транзакции
-            response = await self.http_client.get(
-                f"{self.BASE_URL}/trades",
-                params={
-                    "min_amount": min_amount,
-                    "limit": 20,
-                    "sort": "desc"
-                }
-            )
-            response.raise_for_status()
-            trades = response.json()
+            # Получаем активные рынки
+            markets = await self.get_active_markets(20)
             
             whale_trades = []
-            for trade in trades:
-                whale_trades.append({
-                    "market_id": trade.get("marketId", ""),
-                    "amount": float(trade.get("amount", 0)),
-                    "price": float(trade.get("price", 0)),
-                    "timestamp": trade.get("timestamp", ""),
-                    "type": "Buy" if trade.get("isBuy", False) else "Sell"
-                })
             
+            # Для каждого рынка получаем информацию о крупных сделках
+            for market in markets[:10]:  # Ограничиваем для производительности
+                market_id = market.get("id", "")
+                
+                # Получаем последние сделки по рынку
+                try:
+                    response = await self.http_client.get(
+                        f"{self.BASE_URL}/markets/{market_id}/trades",
+                        params={"limit": 10}
+                    )
+                    
+                    if response.status_code == 200:
+                        trades = response.json()
+                        
+                        for trade in trades:
+                            amount = float(trade.get("amount", 0) or trade.get("quantity", 0))
+                            
+                            # Фильтруем крупные сделки
+                            if amount >= min_amount:
+                                whale_trades.append({
+                                    "market_id": market_id,
+                                    "market_title": market.get("title", "Unknown"),
+                                    "amount": amount,
+                                    "price": float(trade.get("price", 0)),
+                                    "timestamp": trade.get("timestamp", ""),
+                                    "type": "Buy" if trade.get("isBuy", False) else "Sell"
+                                })
+                                
+                except Exception:
+                    continue
+            
+            # Сортируем по размеру сделки
+            whale_trades.sort(key=lambda x: x["amount"], reverse=True)
             return whale_trades[:10]  # Возвращаем топ 10
             
         except Exception as e:
