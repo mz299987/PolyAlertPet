@@ -94,7 +94,7 @@ class PolymarketBot:
         
         # Импортируем и регистрируем недостающие обработчики
         try:
-            from newapp.handlers.missing_handlers import router as missing_handlers_router
+            from newapp.handlers.missing_handlers import missing_handlers_router
             self.dp.include_router(missing_handlers_router)
         except ImportError as e:
             self.logger.warning(f"Не удалось загрузить дополнительные обработчики: {e}")
