@@ -12,7 +12,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from newapp.bot import main
 
-
 if __name__ == "__main__":
     try:
         print("🚀 Запуск Polymarket Tracker...")
