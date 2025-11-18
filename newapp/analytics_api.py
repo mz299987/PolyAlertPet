@@ -22,7 +22,18 @@ class PolymarketAnalyticsAPI:
                 f"{self.BASE_URL}/markets/{market_id}"
             )
             response.raise_for_status()
-            return response.json()
+            market_data = response.json()
+            
+            # Нормализуем название рынка
+            if isinstance(market_data, dict):
+                title = (market_data.get("title") or 
+                        market_data.get("question") or 
+                        market_data.get("name") or 
+                        market_data.get("marketTitle") or 
+                        "Unknown Market")
+                market_data["normalized_title"] = title
+                
+            return market_data
         except Exception as e:
             self.logger.error(f"Ошибка получения данных рынка {market_id}: {e}")
             return None
@@ -44,6 +55,8 @@ class PolymarketAnalyticsAPI:
                 return data['markets']
             elif isinstance(data, dict) and 'data' in data:
                 return data['data']
+            elif isinstance(data, dict) and 'results' in data:
+                return data['results']
             else:
                 return []
                 
@@ -87,13 +100,20 @@ class PolymarketAnalyticsAPI:
             markets_with_volume = []
             for market in markets:
                 # Извлекаем объем из данных рынка
-                volume = market.get("volume", 0) or market.get("volume24h", 0) or market.get("totalVolume", 0)
+                volume = market.get("volume", 0) or market.get("volume24h", 0) or market.get("totalVolume", 0) or market.get("volumeUSD", 0)
+                
+                # Извлекаем название рынка из разных возможных полей
+                title = (market.get("title") or 
+                        market.get("question") or 
+                        market.get("name") or 
+                        market.get("marketTitle") or 
+                        "Unknown Market")
                 
                 markets_with_volume.append({
-                    "id": market.get("id", "") or market.get("conditionId", ""),
-                    "title": market.get("title", "Unknown Market"),
+                    "id": market.get("id", "") or market.get("conditionId", "") or market.get("marketId", ""),
+                    "title": title,
                     "volume": float(volume or 0),
-                    "liquidity": float(market.get("liquidity", 0) or market.get("totalLiquidity", 0) or 0),
+                    "liquidity": float(market.get("liquidity", 0) or market.get("totalLiquidity", 0) or market.get("liquidityUSD", 0) or 0),
                     "outcomes": market.get("outcomes", []),
                     "url": market.get("url", ""),
                     "category": market.get("category", ""),
