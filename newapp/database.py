@@ -69,6 +69,17 @@ class Database:
                 )
             """)
     
+            # Миграция: переименовываем столбец tg_user_id в user_id если он существует
+            await conn.execute("""
+                DO $$ 
+                BEGIN 
+                    IF EXISTS (SELECT 1 FROM information_schema.columns 
+                              WHERE table_name = 'wallets' AND column_name = 'tg_user_id') THEN
+                        ALTER TABLE wallets RENAME COLUMN tg_user_id TO user_id;
+                    END IF;
+                END $$;
+            """)
+    
             # Миграция: добавляем столбец name если он отсутствует
             await conn.execute("""
                 DO $$ 
