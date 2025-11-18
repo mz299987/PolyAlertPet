@@ -10,7 +10,7 @@ from newapp.database import Database
 from newapp.polymarket import PolymarketAPI
 from newapp.keyboards import Keyboards
 
-missing_handlers_router = Router()
+router = Router()
 
 
 # Обработчики для меню ставок
