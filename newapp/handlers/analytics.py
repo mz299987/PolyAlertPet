@@ -10,6 +10,7 @@ import asyncio
 
 from newapp.database import Database
 from newapp.polymarket import PolymarketAPI
+from newapp.analytics_api import PolymarketAnalyticsAPI, AnalyticsManager
 from newapp.keyboards import Keyboards
 from newapp.cache import Cache
 
@@ -99,29 +100,82 @@ async def cb_portfolio_distribution(callback: CallbackQuery, db: Database, polym
 
 
 @router.callback_query(F.data == "top_markets")
-async def cb_top_markets(callback: CallbackQuery, cache: Cache):
+async def cb_top_markets(callback: CallbackQuery, polymarket: PolymarketAPI, cache: Cache):
     """Топ рынков по объему"""
     language = await cache.get_user_language(callback.from_user.id)
     
-    # Получаем кэшированные данные о топ рынках
-    # В реальном приложении здесь будет запрос к Polymarket API
+    # Получаем реальные данные о топ рынках
+    try:
+        # Используем кэш для получения данных
+        async def fetch_top_markets():
+            try:
+                # Запрос к Polymarket API для получения популярных рынков
+                response = await polymarket.http_client.get(
+                    f"{polymarket.BASE_URL}/markets",
+                    params={"limit": 10, "sort": "volume"},
+                    headers={"User-Agent": "PolymarketTrackerBot/1.0"}
+                )
+                response.raise_for_status()
+                markets_data = response.json()
+                
+                if isinstance(markets_data, list):
+                    return markets_data[:5]  # Топ-5 рынков
+                return []
+            except Exception as e:
+                print(f"Ошибка получения топ рынков: {e}")
+                return []
+        
+        top_markets = await cache.get_with_fallback(
+            "top_markets", 
+            fetch_top_markets, 
+            ttl=300  # 5 минут
+        )
+        
+        if language == "ru":
+            text = "🔥 <b>Топ рынков по объему</b>\n\n"
+            if top_markets:
+                for i, market in enumerate(top_markets, 1):
+                    title = market.get('title', 'Unknown Market')[:30]
+                    volume = market.get('volume', 0)
+                    if volume > 1000000:
+                        volume_text = f"${volume/1000000:.1f}M"
+                    elif volume > 1000:
+                        volume_text = f"${volume/1000:.1f}K"
+                    else:
+                        volume_text = f"${volume:.0f}"
+                    text += f"{i}. {title} - {volume_text}\n"
+            else:
+                text += "⚠️ Не удалось загрузить данные о рынках\n"
+                text += "Попробуйте позже или проверьте подключение"
+            text += "\n🔄 Данные обновляются каждые 5 минут"
+        else:
+            text = "🔥 <b>Top Markets by Volume</b>\n\n"
+            if top_markets:
+                for i, market in enumerate(top_markets, 1):
+                    title = market.get('title', 'Unknown Market')[:30]
+                    volume = market.get('volume', 0)
+                    if volume > 1000000:
+                        volume_text = f"${volume/1000000:.1f}M"
+                    elif volume > 1000:
+                        volume_text = f"${volume/1000:.1f}K"
+                    else:
+                        volume_text = f"${volume:.0f}"
+                    text += f"{i}. {title} - {volume_text}\n"
+            else:
+                text += "⚠️ Failed to load market data\n"
+                text += "Try again later or check connection"
+            text += "\n🔄 Data updates every 5 minutes"
     
-    if language == "ru":
-        text = "🔥 <b>Топ рынков по объему</b>\n\n"
-        text += "1. US Elections 2024 - $2.5M\n"
-        text += "2. ETH ETF Approval - $1.8M\n"
-        text += "3. Fed Rate Decision - $1.2M\n"
-        text += "4. Bitcoin Halving - $950K\n"
-        text += "5. Climate Events - $780K\n\n"
-        text += "🔄 Данные обновляются каждые 5 минут"
-    else:
-        text = "🔥 <b>Top Markets by Volume</b>\n\n"
-        text += "1. US Elections 2024 - $2.5M\n"
-        text += "2. ETH ETF Approval - $1.8M\n"
-        text += "3. Fed Rate Decision - $1.2M\n"
-        text += "4. Bitcoin Halving - $950K\n"
-        text += "5. Climate Events - $780K\n\n"
-        text += "🔄 Data updates every 5 minutes"
+    except Exception as e:
+        print(f"Ошибка в обработчике топ рынков: {e}")
+        if language == "ru":
+            text = "🔥 <b>Топ рынков по объему</b>\n\n"
+            text += "⚠️ Временная техническая неполадка\n"
+            text += "Попробуйте обновить данные через несколько минут"
+        else:
+            text = "🔥 <b>Top Markets by Volume</b>\n\n"
+            text += "⚠️ Temporary technical issue\n"
+            text += "Try refreshing data in a few minutes"
     
     await callback.message.edit_text(
         text,
