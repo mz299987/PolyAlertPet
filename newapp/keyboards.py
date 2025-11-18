@@ -24,15 +24,15 @@ class Keyboards:
         """Главное меню"""
         if language == "ru":
             buttons = [
-                [KeyboardButton(text="➕ Мой кошелёк"), KeyboardButton(text="➕ Кит")],
-                [KeyboardButton(text="📊 Мои кошельки"), KeyboardButton(text="📈 Состояние")],
+                [KeyboardButton(text="💰 Ставки"), KeyboardButton(text="📊 Мои кошельки")],
+                [KeyboardButton(text="🎯 Мои ставки"), KeyboardButton(text="📈 Состояние")],
                 [KeyboardButton(text="📊 Аналитика"), KeyboardButton(text="🔍 Поиск")],
                 [KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="ℹ️ Помощь")]
             ]
         else:
             buttons = [
-                [KeyboardButton(text="➕ My Wallet"), KeyboardButton(text="➕ Whale")],
-                [KeyboardButton(text="📊 My Wallets"), KeyboardButton(text="📈 Status")],
+                [KeyboardButton(text="💰 Betting"), KeyboardButton(text="📊 My Wallets")],
+                [KeyboardButton(text="🎯 My Bets"), KeyboardButton(text="📈 Status")],
                 [KeyboardButton(text="📊 Analytics"), KeyboardButton(text="🔍 Search")],
                 [KeyboardButton(text="⚙️ Settings"), KeyboardButton(text="ℹ️ Help")]
             ]
@@ -199,12 +199,14 @@ class Keyboards:
         if language == "ru":
             buttons = [
                 [KeyboardButton(text="🔄 Обновить"), KeyboardButton(text="📊 Статус")],
+                [KeyboardButton(text="💰 Ставки"), KeyboardButton(text="🎯 Мои ставки")],
                 [KeyboardButton(text="🔍 Поиск"), KeyboardButton(text="⚙️ Настройки")],
                 [KeyboardButton(text="⬅️ Главная")]
             ]
         else:
             buttons = [
                 [KeyboardButton(text="🔄 Refresh"), KeyboardButton(text="📊 Status")],
+                [KeyboardButton(text="💰 Betting"), KeyboardButton(text="🎯 My Bets")],
                 [KeyboardButton(text="🔍 Search"), KeyboardButton(text="⚙️ Settings")],
                 [KeyboardButton(text="⬅️ Main")]
             ]
@@ -214,3 +216,47 @@ class Keyboards:
             resize_keyboard=True,
             input_field_placeholder="Быстрые действия" if language == "ru" else "Quick actions"
         )
+    
+    @staticmethod
+    def get_betting_menu(language: str = "en") -> InlineKeyboardMarkup:
+        """Меню ставок"""
+        if language == "ru":
+            buttons = [
+                [InlineKeyboardButton(text="🎯 Сделать ставку", callback_data="place_bet")],
+                [InlineKeyboardButton(text="📊 Доступные рынки", callback_data="available_markets")],
+                [InlineKeyboardButton(text="📋 История ставок", callback_data="bet_history")],
+                [InlineKeyboardButton(text="🛡️ Мой Safe кошелек", callback_data="my_safe_wallet")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_menu")]
+            ]
+        else:
+            buttons = [
+                [InlineKeyboardButton(text="🎯 Place Bet", callback_data="place_bet")],
+                [InlineKeyboardButton(text="📊 Available Markets", callback_data="available_markets")],
+                [InlineKeyboardButton(text="📋 Bet History", callback_data="bet_history")],
+                [InlineKeyboardButton(text="🛡️ My Safe Wallet", callback_data="my_safe_wallet")],
+                [InlineKeyboardButton(text="⬅️ Back", callback_data="back_to_menu")]
+            ]
+        
+        return InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    @staticmethod
+    def get_bet_confirmation(language: str = "en") -> InlineKeyboardMarkup:
+        """Подтверждение ставки"""
+        if language == "ru":
+            buttons = [
+                [
+                    InlineKeyboardButton(text="✅ Подтвердить", callback_data="confirm_bet"),
+                    InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_bet")
+                ],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_betting")]
+            ]
+        else:
+            buttons = [
+                [
+                    InlineKeyboardButton(text="✅ Confirm", callback_data="confirm_bet"),
+                    InlineKeyboardButton(text="❌ Cancel", callback_data="cancel_bet")
+                ],
+                [InlineKeyboardButton(text="⬅️ Back", callback_data="back_to_betting")]
+            ]
+        
+        return InlineKeyboardMarkup(inline_keyboard=buttons)
