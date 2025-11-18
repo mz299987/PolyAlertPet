@@ -24,17 +24,15 @@ class Keyboards:
         """Главное меню"""
         if language == "ru":
             buttons = [
-                [KeyboardButton(text="💰 Ставки"), KeyboardButton(text="📊 Мои кошельки")],
-                [KeyboardButton(text="🎯 Мои ставки"), KeyboardButton(text="📈 Состояние")],
-                [KeyboardButton(text="📊 Аналитика"), KeyboardButton(text="🔍 Поиск")],
-                [KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="ℹ️ Помощь")]
+                [KeyboardButton(text="💰 Ставки"), KeyboardButton(text="👛 Кошельки")],
+                [KeyboardButton(text="📊 Отчеты"), KeyboardButton(text="🔍 Поиск")],
+                [KeyboardButton(text="⚙️ Настройки")]
             ]
         else:
             buttons = [
-                [KeyboardButton(text="💰 Betting"), KeyboardButton(text="📊 My Wallets")],
-                [KeyboardButton(text="🎯 My Bets"), KeyboardButton(text="📈 Status")],
-                [KeyboardButton(text="📊 Analytics"), KeyboardButton(text="🔍 Search")],
-                [KeyboardButton(text="⚙️ Settings"), KeyboardButton(text="ℹ️ Help")]
+                [KeyboardButton(text="💰 Betting"), KeyboardButton(text="👛 Wallets")],
+                [KeyboardButton(text="📊 Reports"), KeyboardButton(text="🔍 Search")],
+                [KeyboardButton(text="⚙️ Settings")]
             ]
         
         return ReplyKeyboardMarkup(
@@ -257,6 +255,72 @@ class Keyboards:
                     InlineKeyboardButton(text="❌ Cancel", callback_data="cancel_bet")
                 ],
                 [InlineKeyboardButton(text="⬅️ Back", callback_data="back_to_betting")]
+            ]
+        
+        return InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    @staticmethod
+    def get_wallets_menu(language: str = "en") -> InlineKeyboardMarkup:
+        """Меню кошельков"""
+        if language == "ru":
+            buttons = [
+                [InlineKeyboardButton(text="👤 Мой кошелек", callback_data="my_wallet")],
+                [InlineKeyboardButton(text="🐳 Киты", callback_data="whales")],
+                [InlineKeyboardButton(text="➕ Добавить кошелек", callback_data="add_wallet")],
+                [InlineKeyboardButton(text="🗑️ Удалить кошелек", callback_data="delete_wallet")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_menu")]
+            ]
+        else:
+            buttons = [
+                [InlineKeyboardButton(text="👤 My Wallet", callback_data="my_wallet")],
+                [InlineKeyboardButton(text="🐳 Whales", callback_data="whales")],
+                [InlineKeyboardButton(text="➕ Add Wallet", callback_data="add_wallet")],
+                [InlineKeyboardButton(text="🗑️ Delete Wallet", callback_data="delete_wallet")],
+                [InlineKeyboardButton(text="⬅️ Back", callback_data="back_to_menu")]
+            ]
+        
+        return InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    @staticmethod
+    def get_reports_menu(language: str = "en") -> InlineKeyboardMarkup:
+        """Меню отчетов (состояние + аналитика)"""
+        if language == "ru":
+            buttons = [
+                [InlineKeyboardButton(text="📈 Общее состояние", callback_data="overall_status")],
+                [InlineKeyboardButton(text="📊 Детальная аналитика", callback_data="detailed_analytics")],
+                [InlineKeyboardButton(text="🔥 Топ рынки", callback_data="top_markets")],
+                [InlineKeyboardButton(text="📉 Волатильность", callback_data="volatility")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_menu")]
+            ]
+        else:
+            buttons = [
+                [InlineKeyboardButton(text="📈 Overall Status", callback_data="overall_status")],
+                [InlineKeyboardButton(text="📊 Detailed Analytics", callback_data="detailed_analytics")],
+                [InlineKeyboardButton(text="🔥 Top Markets", callback_data="top_markets")],
+                [InlineKeyboardButton(text="📉 Volatility", callback_data="volatility")],
+                [InlineKeyboardButton(text="⬅️ Back", callback_data="back_to_menu")]
+            ]
+        
+        return InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    @staticmethod
+    def get_settings_menu_updated(language: str = "en") -> InlineKeyboardMarkup:
+        """Обновленное меню настроек"""
+        if language == "ru":
+            buttons = [
+                [InlineKeyboardButton(text="🔔 Уведомления", callback_data="notification_settings")],
+                [InlineKeyboardButton(text="🌐 Язык", callback_data="language_settings")],
+                [InlineKeyboardButton(text="🛡️ Безопасность", callback_data="security_settings")],
+                [InlineKeyboardButton(text="ℹ️ Помощь", callback_data="help")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_menu")]
+            ]
+        else:
+            buttons = [
+                [InlineKeyboardButton(text="🔔 Notifications", callback_data="notification_settings")],
+                [InlineKeyboardButton(text="🌐 Language", callback_data="language_settings")],
+                [InlineKeyboardButton(text="🛡️ Security", callback_data="security_settings")],
+                [InlineKeyboardButton(text="ℹ️ Help", callback_data="help")],
+                [InlineKeyboardButton(text="⬅️ Back", callback_data="back_to_menu")]
             ]
         
         return InlineKeyboardMarkup(inline_keyboard=buttons)
