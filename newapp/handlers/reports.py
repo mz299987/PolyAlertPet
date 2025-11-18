@@ -203,6 +203,14 @@ async def top_markets_handler(callback: CallbackQuery, analytics_api: Polymarket
                     text += f"{i}. <b>{title}</b>\n"
                     text += f"   💰 Объем: {volume_text}\n"
                     
+                    # Добавляем коэффициенты исходов
+                    outcomes = market.get("outcomes", [])
+                    if outcomes:
+                        for outcome in outcomes[:2]:  # Показываем первые 2 исхода
+                            outcome_name = outcome.get("name", "Unknown")
+                            outcome_percent = outcome.get("percent", 0)
+                            text += f"   📊 {outcome_name}: {outcome_percent:.1f}%\n"
+                    
                     # Добавляем информацию о ликвидности, если доступна
                     liquidity = market.get("liquidity", 0)
                     if liquidity > 0:
