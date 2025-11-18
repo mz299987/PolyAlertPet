@@ -15,7 +15,7 @@ from newapp.analytics_api import PolymarketAnalyticsAPI
 from newapp.cache import Cache
 from newapp.security import Security
 from newapp.notifications import NotificationManager
-from newapp.handlers import start, wallets, status, analytics, settings, betting, reports
+from newapp.handlers import all_routers
 
 
 class PolymarketBot:
@@ -83,14 +83,9 @@ class PolymarketBot:
         self.dp["security"] = self.security
         self.dp["notifications"] = self.notifications
         
-        # Регистрация роутеров
-        self.dp.include_router(start.router)
-        self.dp.include_router(wallets.router)
-        self.dp.include_router(status.router)
-        self.dp.include_router(analytics.router)
-        self.dp.include_router(settings.router)
-        self.dp.include_router(betting.router)
-        self.dp.include_router(reports.router)
+        # Регистрация всех роутеров
+        for router in all_routers:
+            self.dp.include_router(router)
         
         # Импортируем и регистрируем недостающие обработчики
         try:
