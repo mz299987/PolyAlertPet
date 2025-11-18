@@ -7,6 +7,7 @@ from typing import Dict, Any
 import logging
 
 from newapp.builder_api import PolymarketBuilderAPI, BettingManager
+from newapp.keyboards import Keyboards
 
 
 class BettingStates(StatesGroup):
@@ -287,6 +288,148 @@ class BettingHandler:
             markets_text += "💡 Для ставки используйте команду /bet"
             
             await message.answer(markets_text)
+
+
+        # Обработчики для интерактивных кнопок
+        @self.router.message(F.text.contains("💰 Ставки") | F.text.contains("💰 Betting"))
+        async def show_betting_menu(message: Message, db):
+            """Показывает меню ставок"""
+            user_id = message.from_user.id
+            language = await db.get_user_language(user_id)
+            
+            keyboard = Keyboards.get_betting_menu(language)
+            
+            if language == "ru":
+                text = "🎯 <b>Меню ставок</b>\n\nВыберите действие:"
+            else:
+                text = "🎯 <b>Betting Menu</b>\n\nChoose an action:"
+            
+            await message.answer(text, reply_markup=keyboard)
+        
+        @self.router.message(F.text.contains("🎯 Мои ставки") | F.text.contains("🎯 My Bets"))
+        async def show_my_bets(message: Message, db):
+            """Показывает историю ставок"""
+            user_id = message.from_user.id
+            bets = await db.get_user_bets(user_id, limit=10)
+            
+            if not bets:
+                await message.answer("📭 У вас еще нет ставок.")
+                return
+            
+            bets_text = "📋 <b>Ваши последние ставки:</b>\n\n"
+            
+            for i, bet in enumerate(bets, 1):
+                status_emoji = "✅" if bet['status'] == 'confirmed' else "⏳"
+                bets_text += (
+                    f"{i}. {status_emoji} <b>{bet['market_id'][:10]}...</b>\n"
+                    f"   Исход: {bet['outcome']} | Сумма: {bet['amount']} USDC\n"
+                    f"   Статус: {bet['status']}\n\n"
+                )
+            
+            await message.answer(bets_text)
+        
+        @self.router.callback_query(F.data == "place_bet")
+        async def start_betting_callback(callback: CallbackQuery, state: FSMContext, db, polymarket: PolymarketBuilderAPI):
+            """Начинает процесс ставки через кнопку"""
+            user_id = callback.from_user.id
+            
+            # Проверяем, есть ли у пользователя кошельки
+            wallets = await db.get_user_wallets(user_id)
+            if not wallets:
+                await callback.answer("❌ Сначала добавьте кошелек", show_alert=True)
+                return
+            
+            # Создаем менеджер ставок
+            betting_manager = BettingManager(polymarket, db)
+            
+            # Инициализируем систему ставок для первого кошелька
+            wallet_address = wallets[0]['address']
+            safe_address = await betting_manager.initialize_user_betting(user_id, wallet_address)
+            
+            if not safe_address:
+                await callback.answer("❌ Ошибка инициализации", show_alert=True)
+                return
+            
+            await state.update_data({
+                'safe_address': safe_address,
+                'wallet_address': wallet_address
+            })
+            
+            language = await db.get_user_language(user_id)
+            
+            if language == "ru":
+                text = (
+                    f"🎯 <b>Размещение ставки</b>\n\n"
+                    f"🛡️ Ваш Safe кошелек: <code>{safe_address}</code>\n\n"
+                    f"📝 Введите ID рынка (market ID) для ставки:\n"
+                    f"<i>Пример: 0x1234...5678</i>"
+                )
+            else:
+                text = (
+                    f"🎯 <b>Placing Bet</b>\n\n"
+                    f"🛡️ Your Safe wallet: <code>{safe_address}</code>\n\n"
+                    f"📝 Enter market ID for betting:\n"
+                    f"<i>Example: 0x1234...5678</i>"
+                )
+            
+            await callback.message.edit_text(text)
+            await state.set_state(BettingStates.waiting_for_market)
+            await callback.answer()
+        
+        @self.router.callback_query(F.data == "available_markets")
+        async def show_available_markets_callback(callback: CallbackQuery, polymarket: PolymarketBuilderAPI):
+            """Показывает доступные рынки"""
+            # Временная заглушка
+            sample_markets = [
+                {
+                    "id": "0x1234567890abcdef1234567890abcdef12345678",
+                    "title": "Будет ли цена BTC выше $50,000 к концу года?",
+                    "liquidity": 15000.0
+                },
+                {
+                    "id": "0xabcdef1234567890abcdef1234567890abcdef12", 
+                    "title": "Выиграет ли Team A в следующем матче?",
+                    "liquidity": 8000.0
+                }
+            ]
+            
+            markets_text = "📊 <b>Доступные рынки:</b>\n\n"
+            
+            for market in sample_markets:
+                markets_text += (
+                    f"🔹 <b>{market['title']}</b>\n"
+                    f"   ID: <code>{market['id']}</code>\n"
+                    f"   Ликвидность: {market['liquidity']} USDC\n\n"
+                )
+            
+            markets_text += "💡 Для ставки нажмите \"Сделать ставку\""
+            
+            await callback.message.edit_text(markets_text)
+            await callback.answer()
+        
+        @self.router.callback_query(F.data == "bet_history")
+        async def show_bet_history_callback(callback: CallbackQuery, db):
+            """Показывает историю ставок"""
+            user_id = callback.from_user.id
+            bets = await db.get_user_bets(user_id, limit=10)
+            
+            if not bets:
+                await callback.message.edit_text("📭 У вас еще нет ставок.")
+                await callback.answer()
+                return
+            
+            bets_text = "📋 <b>Ваши последние ставки:</b>\n\n"
+            
+            for i, bet in enumerate(bets, 1):
+                status_emoji = "✅" if bet['status'] == 'confirmed' else "⏳"
+                bets_text += (
+                    f"{i}. {status_emoji} <b>{bet['market_id'][:10]}...</b>\n"
+                    f"   Исход: {bet['outcome']} | Сумма: {bet['amount']} USDC\n"
+                    f"   Статус: {bet['status']}\n\n"
+                )
+            
+            await callback.message.edit_text(bets_text)
+            await callback.answer()
 
 
 # Создаем экземпляр роутера
