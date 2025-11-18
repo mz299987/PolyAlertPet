@@ -100,13 +100,13 @@ async def cb_portfolio_distribution(callback: CallbackQuery, db: Database, polym
 
 
 @router.callback_query(F.data == "top_markets_analytics")
-async def cb_top_markets(callback: CallbackQuery, polymarket: PolymarketAnalyticsAPI):
+async def cb_top_markets(callback: CallbackQuery, analytics_api: PolymarketAnalyticsAPI):
     """Топ рынков по объему с реальными данными"""
     language = "ru"  # Временная заглушка для языка
     
     try:
         # Получаем реальные данные с Polymarket API
-        top_markets = await polymarket.get_top_markets_by_volume(10)
+        top_markets = await analytics_api.get_top_markets_by_volume(10)
         
         if language == "ru":
             text = "🔥 <b>Топ рынков по объему</b>\n\n"
@@ -203,7 +203,7 @@ async def cb_top_markets(callback: CallbackQuery, polymarket: PolymarketAnalytic
 
 
 @router.callback_query(F.data == "volatility_analysis")
-async def cb_volatility_analysis(callback: CallbackQuery, db: Database, polymarket: PolymarketAnalyticsAPI):
+async def cb_volatility_analysis(callback: CallbackQuery, db: Database, analytics_api: PolymarketAnalyticsAPI):
     """Анализ волатильности"""
     language = await db.get_user_language(callback.from_user.id)
     wallets = await db.get_user_wallets(callback.from_user.id)
@@ -221,7 +221,7 @@ async def cb_volatility_analysis(callback: CallbackQuery, db: Database, polymark
     
     try:
         # Получаем данные портфеля
-        portfolio_data = await polymarket.get_portfolio_analysis(wallet_address)
+        portfolio_data = await analytics_api.get_portfolio_analysis(wallet_address)
         markets = portfolio_data.get("markets", [])
         
         if language == "ru":
@@ -236,7 +236,7 @@ async def cb_volatility_analysis(callback: CallbackQuery, db: Database, polymark
                     market_title = market.get("title", "Unknown")[:30]
                     
                     # Получаем анализ волатильности для рынка
-                    volatility_data = await polymarket.get_volatility_analysis(market_id)
+                    volatility_data = await analytics_api.get_volatility_analysis(market_id)
                     volatility = volatility_data.get("volatility", 0.0)
                     analysis = volatility_data.get("analysis", "Unknown")
                     
