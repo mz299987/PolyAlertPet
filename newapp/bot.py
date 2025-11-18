@@ -120,11 +120,20 @@ class PolymarketBot:
         await runner.setup()
         
         port = int(os.getenv("PORT", "8000"))
-        site = web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
         
-        self.logger.info(f"✅ Health-сервер запущен на порту {port}")
-        return runner
+        # Пытаемся привязаться к порту с обработкой ошибок
+        try:
+            site = web.TCPSite(runner, "0.0.0.0", port)
+            await site.start()
+            self.logger.info(f"✅ Health-сервер запущен на порту {port}")
+            return runner
+        except OSError as e:
+            if e.errno == 98:  # Address already in use
+                self.logger.warning(f"⚠️ Порт {port} уже занят. Health-сервер уже запущен.")
+                # Возвращаем None, чтобы избежать двойного запуска
+                return None
+            else:
+                raise
     
     async def start(self):
         """Запуск бота"""
@@ -177,13 +186,30 @@ class PolymarketBot:
             await self.setup()
             
             # Бесконечный цикл с перезапуском при ошибках
-            while True:
+            restart_count = 0
+            while restart_count < 3:  # Ограничим количество перезапусков
                 try:
                     await self.start()
+                except OSError as e:
+                    if e.errno == 98:  # Address already in use
+                        self.logger.error(f"❌ Порт уже занят. Прекращаем попытки перезапуска.")
+                        break
+                    else:
+                        self.logger.error(f"❌ Ошибка в работе бота: {e}")
+                        restart_count += 1
+                        if restart_count < 3:
+                            self.logger.info("🔄 Перезапуск через 10 секунд...")
+                            await asyncio.sleep(10)
+                        else:
+                            self.logger.error("❌ Превышено количество попыток перезапуска")
                 except Exception as e:
                     self.logger.error(f"❌ Ошибка в работе бота: {e}")
-                    self.logger.info("🔄 Перезапуск через 10 секунд...")
-                    await asyncio.sleep(10)
+                    restart_count += 1
+                    if restart_count < 3:
+                        self.logger.info("🔄 Перезапуск через 10 секунд...")
+                        await asyncio.sleep(10)
+                    else:
+                        self.logger.error("❌ Превышено количество попыток перезапуска")
                     
         except KeyboardInterrupt:
             self.logger.info("⏹️ Остановка по запросу пользователя")
