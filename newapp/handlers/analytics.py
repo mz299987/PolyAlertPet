@@ -99,7 +99,7 @@ async def cb_portfolio_distribution(callback: CallbackQuery, db: Database, polym
     await callback.answer()
 
 
-@router.callback_query(F.data == "top_markets")
+@router.callback_query(F.data == "top_markets_analytics")
 async def cb_top_markets(callback: CallbackQuery, polymarket: PolymarketAPI, cache: Cache):
     """Топ рынков по объему"""
     language = await cache.get_user_language(callback.from_user.id)
