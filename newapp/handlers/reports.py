@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.callback_query(F.data == "overall_status")
-async def overall_status_handler(callback: CallbackQuery, db: Database, polymarket: PolymarketAnalyticsAPI):
+async def overall_status_handler(callback: CallbackQuery, db: Database, analytics_api: PolymarketAnalyticsAPI):
     """Общее состояние портфеля с актуальными данными"""
     user_id = callback.from_user.id
     language = await db.get_user_language(user_id)
@@ -39,7 +39,7 @@ async def overall_status_handler(callback: CallbackQuery, db: Database, polymark
     
     try:
         # Получаем данные портфеля
-        portfolio_data = await polymarket.get_portfolio_analysis(wallet_address)
+        portfolio_data = await analytics_api.get_portfolio_analysis(wallet_address)
         
         total_value = portfolio_data.get("total_value", 0.0)
         total_pnl = portfolio_data.get("total_pnl", 0.0)
@@ -93,7 +93,7 @@ async def overall_status_handler(callback: CallbackQuery, db: Database, polymark
 
 
 @router.callback_query(F.data == "detailed_analytics")
-async def detailed_analytics_handler(callback: CallbackQuery, db: Database, polymarket: PolymarketAnalyticsAPI):
+async def detailed_analytics_handler(callback: CallbackQuery, db: Database, analytics_api: PolymarketAnalyticsAPI):
     """Детальная аналитика портфеля"""
     user_id = callback.from_user.id
     language = await db.get_user_language(user_id)
@@ -115,7 +115,7 @@ async def detailed_analytics_handler(callback: CallbackQuery, db: Database, poly
     
     try:
         # Получаем детальную аналитику
-        portfolio_data = await polymarket.get_portfolio_analysis(wallet_address)
+        portfolio_data = await analytics_api.get_portfolio_analysis(wallet_address)
         
         total_value = portfolio_data.get("total_value", 0.0)
         total_pnl = portfolio_data.get("total_pnl", 0.0)
@@ -175,13 +175,13 @@ async def detailed_analytics_handler(callback: CallbackQuery, db: Database, poly
 
 
 @router.callback_query(F.data == "top_markets")
-async def top_markets_handler(callback: CallbackQuery, polymarket: PolymarketAnalyticsAPI):
+async def top_markets_handler(callback: CallbackQuery, analytics_api: PolymarketAnalyticsAPI):
     """Топ рынков по объему с актуальными данными"""
     language = "ru"  # Временная заглушка для языка
     
     try:
         # Получаем топ рынков по объему
-        top_markets = await polymarket.get_top_markets_by_volume(10)
+        top_markets = await analytics_api.get_top_markets_by_volume(10)
         
         if language == "ru":
             text = "🔥 <b>Топ рынков по объему торгов</b>\n\n"
@@ -275,7 +275,7 @@ async def top_markets_handler(callback: CallbackQuery, polymarket: PolymarketAna
 
 
 @router.callback_query(F.data == "volatility")
-async def volatility_handler(callback: CallbackQuery, db: Database, polymarket: PolymarketAnalyticsAPI):
+async def volatility_handler(callback: CallbackQuery, db: Database, analytics_api: PolymarketAnalyticsAPI):
     """Анализ волатильности портфеля"""
     user_id = callback.from_user.id
     language = await db.get_user_language(user_id)
@@ -297,7 +297,7 @@ async def volatility_handler(callback: CallbackQuery, db: Database, polymarket: 
     
     try:
         # Получаем данные портфеля
-        portfolio_data = await polymarket.get_portfolio_analysis(wallet_address)
+        portfolio_data = await analytics_api.get_portfolio_analysis(wallet_address)
         markets = portfolio_data.get("markets", [])
         
         if language == "ru":
@@ -312,7 +312,7 @@ async def volatility_handler(callback: CallbackQuery, db: Database, polymarket: 
                     market_title = market.get("title", "Unknown")[:30]
                     
                     # Получаем анализ волатильности для рынка
-                    volatility_data = await polymarket.get_volatility_analysis(market_id)
+                    volatility_data = await analytics_api.get_volatility_analysis(market_id)
                     volatility = volatility_data.get("volatility", 0.0)
                     analysis = volatility_data.get("analysis", "Unknown")
                     
