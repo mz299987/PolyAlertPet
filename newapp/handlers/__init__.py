@@ -3,7 +3,7 @@
 """
 
 # Импортируем роутеры напрямую из файлов
-from .start import router
+from .start import router as start_router
 from .wallets import router as wallets_router
 from .status import router as status_router
 from .analytics import router as analytics_router
@@ -13,7 +13,7 @@ from .reports import router as reports_router
 
 # Создаем список всех роутеров
 all_routers = [
-    router,
+    start_router,
     wallets_router, 
     status_router,
     analytics_router,
