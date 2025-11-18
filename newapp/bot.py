@@ -10,10 +10,11 @@ from httpx import AsyncClient
 from newapp.config import Config
 from newapp.database import Database
 from newapp.polymarket import PolymarketAPI
+from newapp.builder_api import PolymarketBuilderAPI
 from newapp.cache import Cache
 from newapp.security import Security
 from newapp.notifications import NotificationManager
-from newapp.handlers import start, wallets, status, analytics, settings
+from newapp.handlers import start, wallets, status, analytics, settings, betting
 
 
 class PolymarketBot:
@@ -51,6 +52,13 @@ class PolymarketBot:
         self.db = Database(self.config.database_url)
         self.http_client = AsyncClient(timeout=30.0)
         self.polymarket = PolymarketAPI(self.http_client)
+        
+        # Инициализация Builder API для ставок
+        self.builder_api = PolymarketBuilderAPI(
+            builder_key=self.config.builder_key,
+            builder_secret=self.config.builder_secret
+        )
+        
         self.cache = Cache()
         self.security = Security(self.config.rate_limit_per_minute)
         self.notifications = NotificationManager(self.bot, self.db, self.polymarket)
@@ -66,6 +74,7 @@ class PolymarketBot:
         # Регистрация зависимостей
         self.dp["db"] = self.db
         self.dp["polymarket"] = self.polymarket
+        self.dp["builder_api"] = self.builder_api
         self.dp["cache"] = self.cache
         self.dp["security"] = self.security
         self.dp["notifications"] = self.notifications
@@ -76,6 +85,7 @@ class PolymarketBot:
         self.dp.include_router(status.router)
         self.dp.include_router(analytics.router)
         self.dp.include_router(settings.router)
+        self.dp.include_router(betting.router)
         
         self.logger.info("✅ Бот настроен")
     
