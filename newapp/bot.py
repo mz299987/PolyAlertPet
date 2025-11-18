@@ -64,7 +64,7 @@ class PolymarketBot:
         self.http_client = AsyncClient(
             timeout=60.0,
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-            http2=True
+            http2=False  # Отключено для совместимости
         )
         self.polymarket = PolymarketAPI(self.http_client)
         self.analytics_api = PolymarketAnalyticsAPI(self.http_client)
