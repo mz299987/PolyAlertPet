@@ -90,6 +90,14 @@ class PolymarketBot:
         self.dp.include_router(analytics.router)
         self.dp.include_router(settings.router)
         self.dp.include_router(betting.router)
+        self.dp.include_router(reports.router)
+        
+        # Импортируем и регистрируем недостающие обработчики
+        try:
+            from newapp.handlers.missing_handlers import router as missing_handlers_router
+            self.dp.include_router(missing_handlers_router)
+        except ImportError as e:
+            self.logger.warning(f"Не удалось загрузить дополнительные обработчики: {e}")
         
         self.logger.info("✅ Бот настроен")
     
@@ -142,11 +150,11 @@ class PolymarketBot:
             raise
         finally:
             await self.shutdown()
-    
+
     async def shutdown(self):
         """Корректное завершение работы"""
         self.logger.info("🛑 Завершение работы...")
-        
+
         if self.http_client:
             await self.http_client.aclose()
             self.logger.info("✅ HTTP клиент закрыт")
