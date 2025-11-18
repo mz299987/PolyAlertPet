@@ -5,11 +5,13 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+import httpx
 from httpx import AsyncClient
 
 from newapp.config import Config
 from newapp.database import Database
 from newapp.polymarket import PolymarketAPI
+from newapp.analytics_api import PolymarketAnalyticsAPI
 from newapp.cache import Cache
 from newapp.security import Security
 from newapp.notifications import NotificationManager
@@ -34,6 +36,7 @@ class PolymarketBot:
         self.db: Database = None
         self.http_client: AsyncClient = None
         self.polymarket: PolymarketAPI = None
+        self.analytics_api: PolymarketAnalyticsAPI = None
         self.cache: Cache = None
         self.security: Security = None
         self.notifications: NotificationManager = None
@@ -57,8 +60,14 @@ class PolymarketBot:
         
         self.dp = Dispatcher()
         self.db = Database(self.config.database_url)
-        self.http_client = AsyncClient(timeout=30.0)
+        # Улучшенные настройки HTTP-клиента
+        self.http_client = AsyncClient(
+            timeout=60.0,
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            http2=True
+        )
         self.polymarket = PolymarketAPI(self.http_client)
+        self.analytics_api = PolymarketAnalyticsAPI(self.http_client)
         
         self.cache = Cache()
         self.security = Security(self.config.rate_limit_per_minute)
@@ -75,6 +84,7 @@ class PolymarketBot:
         # Регистрация зависимостей
         self.dp["db"] = self.db
         self.dp["polymarket"] = self.polymarket
+        self.dp["analytics_api"] = self.analytics_api
         self.dp["cache"] = self.cache
         self.dp["security"] = self.security
         self.dp["notifications"] = self.notifications
@@ -124,22 +134,20 @@ class PolymarketBot:
             
             self.logger.info("🚀 Запуск бота...")
             
-            # Попытка запуска с обработкой конфликта
-            max_retries = 5
-            for attempt in range(max_retries):
-                try:
-                    await self.dp.start_polling(
-                        self.bot,
-                        allowed_updates=self.dp.resolve_used_update_types(),
-                        timeout=10
-                    )
-                    break
-                except Exception as e:
-                    if "Conflict" in str(e) and attempt < max_retries - 1:
-                        self.logger.warning(f"⚠️ Конфликт с другим ботом, попытка {attempt + 1}/{max_retries}")
-                        await asyncio.sleep(5)
-                    else:
-                        raise
+            # Запуск polling с улучшенными настройками
+            try:
+                await self.dp.start_polling(
+                    self.bot,
+                    allowed_updates=self.dp.resolve_used_update_types(),
+                    timeout=60,  # Увеличиваем таймаут
+                    relax=1,     # Пауза между запросами
+                    skip_updates=True  # Пропускаем старые апдейты
+                )
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка polling: {e}")
+                # Пытаемся перезапустить через 10 секунд
+                await asyncio.sleep(10)
+                await self.start()
                         
         except Exception as e:
             self.logger.error(f"❌ Ошибка при запуске бота: {e}")
@@ -167,7 +175,16 @@ class PolymarketBot:
         """Главный метод запуска"""
         try:
             await self.setup()
-            await self.start()
+            
+            # Бесконечный цикл с перезапуском при ошибках
+            while True:
+                try:
+                    await self.start()
+                except Exception as e:
+                    self.logger.error(f"❌ Ошибка в работе бота: {e}")
+                    self.logger.info("🔄 Перезапуск через 10 секунд...")
+                    await asyncio.sleep(10)
+                    
         except KeyboardInterrupt:
             self.logger.info("⏹️ Остановка по запросу пользователя")
         except Exception as e:
