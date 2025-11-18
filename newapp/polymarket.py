@@ -14,28 +14,46 @@ class PolymarketAPI:
     async def get_wallet_positions(self, address: str) -> List[Dict[str, Any]]:
         """Получает позиции кошелька"""
         try:
+            # Используем актуальный API эндпоинт для получения позиций
             response = await self.http_client.get(
                 f"{self.BASE_URL}/positions",
-                params={"user": address, "sizeThreshold": 0}
+                params={"user": address, "sizeThreshold": 0, "includeClosed": "false"},
+                headers={"User-Agent": "PolymarketTrackerBot/1.0"}
             )
             response.raise_for_status()
-            return response.json()
-        except Exception:
+            data = response.json()
+            
+            # Проверяем структуру ответа
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict) and 'positions' in data:
+                return data['positions']
+            else:
+                return []
+        except Exception as e:
+            print(f"Ошибка получения позиций для {address}: {e}")
             return []
     
     async def get_wallet_value(self, address: str) -> Optional[float]:
         """Получает общую стоимость портфеля"""
         try:
+            # Используем более надежный эндпоинт для получения стоимости
             response = await self.http_client.get(
                 f"{self.BASE_URL}/value",
-                params={"user": address}
+                params={"user": address, "currency": "USDC"},
+                headers={"User-Agent": "PolymarketTrackerBot/1.0"}
             )
             response.raise_for_status()
             data = response.json()
+            
+            # Обрабатываем разные форматы ответа
             if isinstance(data, list) and data:
                 return float(data[0].get("value", 0))
+            elif isinstance(data, dict):
+                return float(data.get("value", 0))
             return None
-        except Exception:
+        except Exception as e:
+            print(f"Ошибка получения стоимости для {address}: {e}")
             return None
     
     async def get_active_markets(self, address: str) -> List[Dict[str, Any]]:
@@ -46,6 +64,10 @@ class PolymarketAPI:
         for position in positions:
             market_id = position.get("marketId") or position.get("conditionId")
             if not market_id:
+                continue
+                
+            # Проверяем, что позиция активна (не закрыта)
+            if position.get("isClosed") or position.get("closed"):
                 continue
                 
             if market_id not in markets:
