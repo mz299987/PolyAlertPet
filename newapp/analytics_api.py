@@ -39,27 +39,53 @@ class PolymarketAnalyticsAPI:
             return None
     
     async def get_active_markets(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Получает список активных рынков"""
+        """Получает список активных рынков с реальными коэффициентами"""
         try:
+            # Используем актуальный API для получения рынков
             response = await self.http_client.get(
                 f"{self.BASE_URL}/markets",
-                params={"limit": limit, "sort": "volume"}
+                params={
+                    "limit": limit,
+                    "sort": "volume",
+                    "active": "true",
+                    "includeClosed": "false"
+                }
             )
             response.raise_for_status()
             data = response.json()
             
             # Обрабатываем разные форматы ответа
             if isinstance(data, list):
-                return data
+                markets = data
             elif isinstance(data, dict) and 'markets' in data:
-                return data['markets']
+                markets = data['markets']
             elif isinstance(data, dict) and 'data' in data:
-                return data['data']
+                markets = data['data']
             elif isinstance(data, dict) and 'results' in data:
-                return data['results']
+                markets = data['results']
             else:
-                return []
+                markets = []
+            
+            # Обрабатываем каждый рынок для получения детальной информации
+            processed_markets = []
+            for market in markets[:limit]:
+                market_id = market.get("id") or market.get("conditionId") or market.get("marketId")
+                if not market_id:
+                    continue
+                    
+                # Получаем детальную информацию по рынку
+                detailed_data = await self.get_market_data(market_id)
+                if detailed_data:
+                    market.update(detailed_data)
                 
+                processed_markets.append(market)
+            
+            return processed_markets
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка получения активных рынков: {e}")
+            return []
+
         except Exception as e:
             self.logger.error(f"Ошибка получения активных рынков: {e}")
             return []
