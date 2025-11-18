@@ -93,8 +93,13 @@ async def cb_set_language_start(callback: CallbackQuery, db: Database):
     )
     
     # Отправляем главное меню как новое сообщение
+    if language == "ru":
+        text = "👋 <b>Добро пожаловать в Polymarket Tracker!</b>\n\nВыберите раздел из меню ниже 👇"
+    else:
+        text = "👋 <b>Welcome to Polymarket Tracker!</b>\n\nChoose a section from the menu below 👇"
+    
     await callback.message.answer(
-        "Главное меню" if language == "ru" else "Main menu",
+        text,
         reply_markup=Keyboards.get_main_menu(language)
     )
     await callback.answer()
@@ -151,3 +156,51 @@ async def cb_set_language(callback: CallbackQuery, db: Database):
     
     await callback.message.edit_text(text)
     await callback.answer(text)
+
+
+@router.message(F.text.contains("👛 Кошельки") | F.text.contains("👛 Wallets"))
+async def show_wallets_menu(message: Message, db: Database):
+    """Показывает меню кошельков"""
+    user_id = message.from_user.id
+    language = await db.get_user_language(user_id)
+    
+    keyboard = Keyboards.get_wallets_menu(language)
+    
+    if language == "ru":
+        text = "👛 <b>Управление кошельками</b>\n\nВыберите действие:"
+    else:
+        text = "👛 <b>Wallet Management</b>\n\nChoose an action:"
+    
+    await message.answer(text, reply_markup=keyboard)
+
+
+@router.message(F.text.contains("📊 Отчеты") | F.text.contains("📊 Reports"))
+async def show_reports_menu(message: Message, db: Database):
+    """Показывает меню отчетов"""
+    user_id = message.from_user.id
+    language = await db.get_user_language(user_id)
+    
+    keyboard = Keyboards.get_reports_menu(language)
+    
+    if language == "ru":
+        text = "📊 <b>Отчеты и аналитика</b>\n\nВыберите тип отчета:"
+    else:
+        text = "📊 <b>Reports & Analytics</b>\n\nChoose report type:"
+    
+    await message.answer(text, reply_markup=keyboard)
+
+
+@router.message(F.text.contains("⚙️ Настройки") | F.text.contains("⚙️ Settings"))
+async def show_settings_menu(message: Message, db: Database):
+    """Показывает меню настроек"""
+    user_id = message.from_user.id
+    language = await db.get_user_language(user_id)
+    
+    keyboard = Keyboards.get_settings_menu_updated(language)
+    
+    if language == "ru":
+        text = "⚙️ <b>Настройки</b>\n\nВыберите настройку:"
+    else:
+        text = "⚙️ <b>Settings</b>\n\nChoose a setting:"
+    
+    await message.answer(text, reply_markup=keyboard)
